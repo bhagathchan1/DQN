@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dqn-reproduction-project"
+version = "0.1.0"
+description = "Testable DQN reproduction and prioritized replay comparison"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "Pillow>=10",
+  "PyYAML>=6",
+  "torch>=2.2",
+]
+
+[project.optional-dependencies]
+env = ["gymnasium[atari]>=1.0", "ale-py>=0.10"]
+analysis = ["matplotlib>=3.8", "pandas>=2.1"]
+test = ["pytest>=8"]
+all = [
+  "gymnasium[atari]>=1.0",
+  "ale-py>=0.10",
+  "matplotlib>=3.8",
+  "pandas>=2.1",
+  "pytest>=8",
+]
+
+[project.scripts]
+dqn-train = "dqn_project.train:main"
+dqn-evaluate = "dqn_project.evaluate:main"
+dqn-plot = "dqn_project.plot_results:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

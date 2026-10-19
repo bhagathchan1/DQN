@@ -1,0 +1,32 @@
+run:
+  id: breakout_pipeline_smoke
+  seed: 7
+
+environment:
+  id: ALE/Breakout-v5
+
+training:
+  device: cpu
+  total_environment_steps: 64
+  learning_starts: 8
+  batch_size: 8
+  gamma: 0.99
+  learning_rate: 0.00025
+  train_frequency: 4
+  target_update_frequency: 4
+  checkpoint_frequency: 32
+  epsilon_start: 1.0
+  epsilon_end: 0.1
+  epsilon_decay_steps: 64
+  clip_rewards: true
+
+replay:
+  type: uniform
+  capacity: 64
+  alpha: 0.6
+  beta_start: 0.4
+  priority_epsilon: 0.000001
+
+evaluation:
+  episodes: 1
+  epsilon: 0.05

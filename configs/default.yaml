@@ -1,0 +1,35 @@
+run:
+  id: breakout_uniform_seed7
+  seed: 7
+
+environment:
+  # Requires Gymnasium Atari extras plus a locally installed Breakout ROM.
+  id: ALE/Breakout-v5
+
+training:
+  device: auto
+  total_environment_steps: 250000
+  learning_starts: 20000
+  batch_size: 32
+  gamma: 0.99
+  learning_rate: 0.00025
+  train_frequency: 4
+  target_update_frequency: 10000
+  checkpoint_frequency: 50000
+  epsilon_start: 1.0
+  epsilon_end: 0.1
+  epsilon_decay_steps: 250000
+  clip_rewards: true
+
+replay:
+  type: uniform
+  # Complete frame stacks are stored for clarity; this is deliberately smaller
+  # than the paper's one-million-frame, memory-efficient replay implementation.
+  capacity: 10000
+  alpha: 0.6
+  beta_start: 0.4
+  priority_epsilon: 0.000001
+
+evaluation:
+  episodes: 10
+  epsilon: 0.05
