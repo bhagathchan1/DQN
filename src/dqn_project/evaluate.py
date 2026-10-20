@@ -23,9 +23,12 @@ def evaluate_policy(
     epsilon: float,
     seed: int,
     device: str | torch.device = "cpu",
+    max_steps_per_episode: int | None = None,
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
+    if max_steps_per_episode is not None and max_steps_per_episode <= 0:
+        raise ValueError("max_steps_per_episode must be positive when provided")
     env = make_env(env_id)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
@@ -46,7 +49,14 @@ def evaluate_policy(
                 state, reward, terminated, truncated, _ = env.step(action)
                 total_reward += reward
                 length += 1
-                done = terminated or truncated
+                done = (
+                    terminated
+                    or truncated
+                    or (
+                        max_steps_per_episode is not None
+                        and length >= max_steps_per_episode
+                    )
+                )
             rewards.append(total_reward)
             lengths.append(length)
     finally:
@@ -60,6 +70,8 @@ def evaluate_policy(
         "reward_max": float(np.max(rewards)),
         "mean_length": float(np.mean(lengths)),
         "episode_rewards": rewards,
+        "episode_lengths": lengths,
+        "max_steps_per_episode": max_steps_per_episode,
     }
 
 
@@ -83,6 +95,7 @@ def main() -> None:
     else:
         device = requested_device
     network = None
+    checkpoint_metadata: dict[str, Any] = {}
     if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
         learner = DQNLearner(
@@ -93,6 +106,7 @@ def main() -> None:
         )
         learner.load(args.checkpoint, load_optimizer=False)
         network = learner.online
+        checkpoint_metadata = dict(checkpoint.get("metadata", {}))
     result = evaluate_policy(
         network,
         config["environment"]["id"],
@@ -100,6 +114,22 @@ def main() -> None:
         float(config["evaluation"]["epsilon"]),
         int(config["run"]["seed"]),
         device,
+        int(config["evaluation"].get("max_steps_per_episode", 4500)),
+    )
+    result.update(
+        {
+            "run_id": checkpoint_metadata.get(
+                "run_id", f"breakout_random_seed{config['run']['seed']}"
+            ),
+            "seed": int(config["run"]["seed"]),
+            "environment_id": str(config["environment"]["id"]),
+            "config_id": Path(args.config).stem,
+            "replay_type": (
+                str(config["replay"]["type"]) if network is not None else "random"
+            ),
+            "checkpoint": str(args.checkpoint) if args.checkpoint else None,
+            "checkpoint_metadata": checkpoint_metadata,
+        }
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

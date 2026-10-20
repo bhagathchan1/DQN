@@ -13,8 +13,7 @@ replay when all other settings are held constant?
 - Observation: max over the last two raw frames in an action repeat, luminance resize
   to 84 x 84, four processed frames stacked channel-first.
 - Reward: raw reward for reporting; sign-clipped reward for training.
-- Seed: 7 for the first matched pair. Add at least two more identical seed pairs before
-  making robust comparative claims.
+- Seeds: 7, 17 and 29, fixed before the full runs and matched across replay methods.
 - Budget: 250,000 decisions / approximately 1,000,000 emulator frames per run.
 - Exploration: epsilon from 1.0 to 0.1 over the run; evaluation epsilon 0.05.
 - Learner: batch 32, gamma 0.99, RMSProp learning rate 0.00025, Huber loss, gradient
@@ -22,9 +21,10 @@ replay when all other settings are held constant?
 - Target network: hard synchronization every 10,000 learner updates.
 - Replay: 10,000 complete stacked-state transitions. Uniform versus proportional
   priority (`alpha=0.6`, beta 0.4 annealed to 1.0), with all other settings matched.
-- Evaluation: 10 episodes for pilots; report mean, standard deviation, minimum,
-  maximum and individual returns. Use the same reset seeding and stopping rules for
-  random, uniform and prioritized policies.
+- Evaluation: 10 episodes per policy and seed, capped at 4,500 selected actions
+  (18,000 emulator frames, approximately five minutes). Report mean, standard
+  deviation, minimum, maximum and individual returns. Use the same reset seeding and
+  stopping rules for random, uniform and prioritized policies.
 
 ## Logging and provenance
 

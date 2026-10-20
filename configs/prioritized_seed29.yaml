@@ -1,0 +1,33 @@
+run:
+  id: breakout_prioritized_seed29
+  seed: 29
+
+environment:
+  id: ALE/Breakout-v5
+
+training:
+  device: auto
+  total_environment_steps: 250000
+  learning_starts: 20000
+  batch_size: 32
+  gamma: 0.99
+  learning_rate: 0.00025
+  train_frequency: 4
+  target_update_frequency: 10000
+  checkpoint_frequency: 50000
+  epsilon_start: 1.0
+  epsilon_end: 0.1
+  epsilon_decay_steps: 250000
+  clip_rewards: true
+
+replay:
+  type: prioritized
+  capacity: 10000
+  alpha: 0.6
+  beta_start: 0.4
+  priority_epsilon: 0.000001
+
+evaluation:
+  episodes: 10
+  epsilon: 0.05
+  max_steps_per_episode: 4500

@@ -5,7 +5,13 @@ __pycache__/
 .venv/
 .DS_Store
 checkpoints/*.pt
-results/metrics/*.csv
-results/metrics/*.json
-results/plots/*.png
+# Final matched checkpoints are small enough to reproduce the reported evaluation.
+!checkpoints/breakout_uniform_seed*_final.pt
+!checkpoints/breakout_prioritized_seed*_final.pt
+
+# Keep transient validation and benchmark artifacts local. Matched full-run metrics,
+# summaries, plots, reports and presentation outputs are intentionally versioned.
+results/metrics/breakout_pipeline_smoke.csv
+results/metrics/smoke_*.json
+results/metrics/breakout_cpu_benchmark.csv
 tmp/

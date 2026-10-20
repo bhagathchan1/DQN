@@ -1,0 +1,48 @@
+{
+  "policy": "dqn",
+  "episodes": 10,
+  "reward_mean": 0.8,
+  "reward_std": 1.0770329614269007,
+  "reward_min": 0.0,
+  "reward_max": 3.0,
+  "mean_length": 155.2,
+  "episode_rewards": [
+    2.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    3.0,
+    0.0,
+    0.0,
+    2.0,
+    1.0
+  ],
+  "episode_lengths": [
+    200,
+    123,
+    124,
+    123,
+    123,
+    241,
+    123,
+    123,
+    216,
+    156
+  ],
+  "max_steps_per_episode": 4500,
+  "run_id": "breakout_prioritized_seed17",
+  "seed": 17,
+  "environment_id": "ALE/Breakout-v5",
+  "config_id": "prioritized_seed17",
+  "replay_type": "prioritized",
+  "checkpoint": "checkpoints/breakout_prioritized_seed17_final.pt",
+  "checkpoint_metadata": {
+    "run_id": "breakout_prioritized_seed17",
+    "environment_id": "ALE/Breakout-v5",
+    "environment_steps": 250000,
+    "config_path": "configs/prioritized_seed17.yaml",
+    "git_revision": "02c028c",
+    "seed": 17
+  }
+}

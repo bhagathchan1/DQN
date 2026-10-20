@@ -1,0 +1,41 @@
+{
+  "policy": "random",
+  "episodes": 10,
+  "reward_mean": 1.0,
+  "reward_std": 0.7745966692414834,
+  "reward_min": 0.0,
+  "reward_max": 2.0,
+  "mean_length": 173.6,
+  "episode_rewards": [
+    1.0,
+    2.0,
+    1.0,
+    1.0,
+    2.0,
+    2.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "episode_lengths": [
+    193,
+    214,
+    163,
+    176,
+    231,
+    185,
+    130,
+    132,
+    145,
+    167
+  ],
+  "max_steps_per_episode": 4500,
+  "run_id": "breakout_random_seed7",
+  "seed": 7,
+  "environment_id": "ALE/Breakout-v5",
+  "config_id": "default",
+  "replay_type": "random",
+  "checkpoint": null,
+  "checkpoint_metadata": {}
+}

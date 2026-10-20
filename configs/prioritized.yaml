@@ -30,3 +30,4 @@ replay:
 evaluation:
   episodes: 10
   epsilon: 0.05
+  max_steps_per_episode: 4500

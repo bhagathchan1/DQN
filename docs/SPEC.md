@@ -66,5 +66,6 @@ event types to which a metric does not apply.
 - [x] CSV logs drive plots and contain run/config/replay provenance.
 - [x] Real Atari environment reset/step smoke test on the execution platform.
 - [x] Tiny collection/replay/update/checkpoint/evaluation pipeline smoke run.
-- [ ] Random, uniform-DQN and prioritized-DQN training/evaluation runs completed.
-- [ ] Results and presentation created only after real experiment logs exist.
+- [ ] Random, uniform-DQN and prioritized-DQN training/evaluation runs completed for
+  matched seeds 7, 17 and 29.
+- [ ] Results report and presentation created only after real experiment logs exist.
