@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ffffff">
-<meta name="data-app-snapshot-sha256" content="297af1006beda9b9b025974aa044af6670c30fa07002c981783429284056f49b">
+<meta name="data-app-snapshot-sha256" content="4e97323c4e737509e683fcb057ce7304582a7b30c95f046e8a6bccaff8cf3bd4">
 <meta name="data-app-runtime-sha256" content="9e3ede84b28aded3c7379b6e6a5611f0d95b9977eb0f781e279ceefabfcbd27e">
 <meta name="data-app-bootstrap" content="deferred-content-v1">
 <meta name="data-app-build-layout" content="separate-data-v1">
-<meta name="data-app-local-snapshot" content="snapshot.297af1006beda9b9b025974aa044af6670c30fa07002c981783429284056f49b.json">
+<meta name="data-app-local-snapshot" content="snapshot.4e97323c4e737509e683fcb057ce7304582a7b30c95f046e8a6bccaff8cf3bd4.json">
 <meta name="data-app-local-thread" content="01a15793-1971-7ce1-8dae-e01f5bf684f1">
 <title>Breakout DQN Reproduction Results</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIuMDMxMjUgOUMyLjAzMTI1IDcuODk1NDMgMi45MjY2OCA3IDQuMDMxMjUgN0g4LjY1NDNWMjEuOTAwNEg0LjAzMTI1QzIuOTI2NjggMjEuOTAwNCAyLjAzMTI1IDIxLjAwNSAyLjAzMTI1IDE5LjkwMDRWOVoiIGZpbGw9IiMwMjg1RkYiLz4KPHBhdGggZD0iTTguNjU0MyA0LjA5OTYxQzguNjU0MyAyLjk5NTA0IDkuNTQ5NzMgMi4wOTk2MSAxMC42NTQzIDIuMDk5NjFIMTMuMjc3M0MxNC4zODE5IDIuMDk5NjEgMTUuMjc3MyAyLjk5NTA0IDE1LjI3NzMgNC4wOTk2MVYyMS45MDA0SDguNjU0M1Y0LjA5OTYxWiIgZmlsbD0iIzAyODVGRiIgZmlsbC1vcGFjaXR5PSIwLjciLz4KPHBhdGggZD0iTTE1LjI3NzMgMTEuMDk5NkgxOS45MDA0QzIxLjAwNSAxMS4wOTk2IDIxLjkwMDQgMTEuOTk1IDIxLjkwMDQgMTMuMDk5NlYxOS45MDA0QzIxLjkwMDQgMjEuMDA1IDIxLjAwNSAyMS45MDA0IDE5LjkwMDQgMjEuOTAwNEgxNS4yNzczVjExLjA5OTZaIiBmaWxsPSIjMDI4NUZGIiBmaWxsLW9wYWNpdHk9IjAuNCIvPgo8L3N2Zz4K">
@@ -97,7 +97,7 @@ function ReportContent() {
     ]})
 
     , jsxRuntime.jsx('section', { children: 
-      jsxRuntime.jsx(dataApp.RichNarrative, { id: "dqn-method-and-caveats", value: `## What was reproduced—and what was not\n\nThe implementation follows the paper’s core DQN setup and compares uniform with prioritized replay under matched budgets and fixed seeds. Evaluation uses epsilon 0.05 and up to 4,500 selected actions per episode (four emulator frames per action), with ten episodes per policy and seed.\n\nThis is a **compute-limited reproduction**, not a scale-faithful rerun of the Nature paper: each agent trained for 250,000 selected actions rather than the paper’s 50 million emulator frames. The smaller budget, three seeds, and short observed scores limit conclusions. Full setup and deviations are documented in docs/paper_alignment.md; raw run and episode-level files are included with the project.`,} )
+      jsxRuntime.jsx(dataApp.RichNarrative, { id: "dqn-method-and-caveats", value: `## What was reproduced—and what was not\n\nThe implementation follows the paper’s core DQN setup and compares uniform with prioritized replay under matched budgets and fixed seeds. Evaluation uses epsilon 0.05 and up to 4,500 selected actions per episode (four emulator frames per action), with ten episodes per policy and seed.\n\nThis is a **compute-limited reproduction**, not a scale-faithful rerun of the Nature paper: each agent trained for 250,000 selected actions rather than the paper’s 50 million emulator frames. The smaller budget, three seeds, and short observed scores limit conclusions. Full setup and deviations are documented in docs/paper_alignment.md; raw run and episode-level files are included with the project.\n\n**Execution record:** macOS 26.5.1 (arm64), CPU-only; Python 3.11.15, PyTorch 2.14.1, Gymnasium 1.4.0 and ALE-py 0.12.1.`,} )
     })
   ]});
 }

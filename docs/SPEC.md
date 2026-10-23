@@ -66,6 +66,16 @@ event types to which a metric does not apply.
 - [x] CSV logs drive plots and contain run/config/replay provenance.
 - [x] Real Atari environment reset/step smoke test on the execution platform.
 - [x] Tiny collection/replay/update/checkpoint/evaluation pipeline smoke run.
-- [ ] Random, uniform-DQN and prioritized-DQN training/evaluation runs completed for
-  matched seeds 7, 17 and 29.
-- [ ] Results report and presentation created only after real experiment logs exist.
+- [x] Random-action evaluation baseline recorded for seeds 7, 17 and 29 (random is an
+  evaluation baseline, not a trained agent).
+- [x] Uniform- and prioritized-replay DQN runs completed for matched seeds 7, 17 and
+  29; each run used 250,000 selected-action decisions and has a final checkpoint.
+- [x] Ten held-out evaluation episodes per policy and seed recorded with individual
+  returns and per-seed summaries.
+- [x] Results report and charts built from the recorded experiment outputs.
+- [x] Self-contained, keyboard-navigable HTML results deck with speaker notes created
+  from the reviewed evaluation summaries and logged training traces.
+
+This acceptance checklist covers the project's compute-bounded Breakout reproduction,
+not a scale-faithful rerun of the 2015 paper. See `docs/paper_alignment.md` for the
+remaining scientific differences and the limits on conclusions.

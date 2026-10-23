@@ -34,6 +34,13 @@ loss, epsilon, wall time, config ID, replay type and event type. Checkpoints rec
 environment, budget, config path, seed and Git revision. Package versions and execution
 hardware should be captured in the final report alongside the logs.
 
+## Recorded execution environment
+
+- macOS 26.5.1, arm64, CPU-only execution (CUDA and Apple MPS were unavailable).
+- Python 3.11.15, PyTorch 2.14.1, Gymnasium 1.4.0 and ALE-py 0.12.1.
+- The experiment used the repository's `.venv`; exact dependency bounds are in
+  `pyproject.toml`.
+
 ## Required comparisons
 
 1. Random action baseline using the evaluation protocol.
