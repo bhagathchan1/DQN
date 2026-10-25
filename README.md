@@ -20,6 +20,14 @@ smaller compute and replay budget than the original 49-game, 50-million-frame st
 
 ## Quick start
 
+For the new single-command training/testing pipeline, Windows instructions,
+isolated multi-seed runs and live gameplay, see [pipeline guide](docs/pipeline.md).
+
+```bash
+python -m dqn_project.pipeline --config configs/default.yaml --output experiments/smoke --smoke --device cpu
+python -m dqn_project.pipeline --config configs/default.yaml --output experiments/my_dqn --seeds 7 17 29
+```
+
 Create an isolated Python environment, then install the package:
 
 ```bash

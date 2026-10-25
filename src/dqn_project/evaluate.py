@@ -24,12 +24,13 @@ def evaluate_policy(
     seed: int,
     device: str | torch.device = "cpu",
     max_steps_per_episode: int | None = None,
+    render: bool = False,
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
-    env = make_env(env_id)
+    env = make_env(env_id, render_mode="human") if render else make_env(env_id)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
@@ -82,6 +83,7 @@ def main() -> None:
     group.add_argument("--checkpoint")
     group.add_argument("--random-baseline", action="store_true")
     parser.add_argument("--output", default="results/metrics/evaluation.json")
+    parser.add_argument("--render", action="store_true", help="Show live gameplay")
     args = parser.parse_args()
     config = load_config(args.config)
     requested_device = str(config["training"].get("device", "cpu"))
@@ -107,14 +109,18 @@ def main() -> None:
         learner.load(args.checkpoint, load_optimizer=False)
         network = learner.online
         checkpoint_metadata = dict(checkpoint.get("metadata", {}))
+        saved_env = checkpoint_metadata.get("environment_id")
+        if saved_env and saved_env != config["environment"]["id"]:
+            raise ValueError(f"checkpoint environment {saved_env} does not match config")
     result = evaluate_policy(
         network,
         config["environment"]["id"],
         int(config["evaluation"]["episodes"]),
         float(config["evaluation"]["epsilon"]),
-        int(config["run"]["seed"]),
+        int(config["evaluation"].get("seed", config["run"]["seed"])),
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
+        render=args.render,
     )
     result.update(
         {
@@ -122,6 +128,7 @@ def main() -> None:
                 "run_id", f"breakout_random_seed{config['run']['seed']}"
             ),
             "seed": int(config["run"]["seed"]),
+            "evaluation_seed": int(config["evaluation"].get("seed", config["run"]["seed"])),
             "environment_id": str(config["environment"]["id"]),
             "config_id": Path(args.config).stem,
             "replay_type": (

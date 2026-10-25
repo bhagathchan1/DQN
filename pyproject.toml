@@ -31,6 +31,7 @@ all = [
 dqn-train = "dqn_project.train:main"
 dqn-evaluate = "dqn_project.evaluate:main"
 dqn-plot = "dqn_project.plot_results:main"
+dqn-pipeline = "dqn_project.pipeline:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

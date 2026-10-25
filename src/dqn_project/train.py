@@ -21,9 +21,12 @@ from .replay_buffer import ReplayBuffer
 
 
 def _git_revision() -> str:
+    repository = Path(__file__).resolve().parents[2]
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], text=True, stderr=subprocess.DEVNULL
+            ["git", "-c", f"safe.directory={repository.as_posix()}",
+             "rev-parse", "--short", "HEAD"], cwd=repository,
+            text=True, stderr=subprocess.DEVNULL
         ).strip()
     except (subprocess.SubprocessError, FileNotFoundError):
         return "unknown"
@@ -155,6 +158,7 @@ def train(config_path: str) -> Path:
                         "config_path": config_path,
                         "git_revision": _git_revision(),
                         "seed": seed,
+                        "config": config,
                     },
                 )
     finally:
@@ -170,6 +174,7 @@ def train(config_path: str) -> Path:
             "config_path": config_path,
             "git_revision": _git_revision(),
             "seed": seed,
+            "config": config,
         },
     )
     return final_path

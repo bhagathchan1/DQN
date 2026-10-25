@@ -71,7 +71,7 @@ class DQNEnv:
         self.env.close()
 
 
-def make_env(env_id: str, seed: int | None = None) -> DQNEnv:
+def make_env(env_id: str, seed: int | None = None, render_mode: str | None = None) -> DQNEnv:
     """Create an image-observation Gymnasium environment.
 
     Gymnasium is imported lazily so model/replay tests do not require Atari extras.
@@ -83,7 +83,7 @@ def make_env(env_id: str, seed: int | None = None) -> DQNEnv:
         raise RuntimeError("install environment extras: pip install -e '.[env]'") from exc
     # Gymnasium 1.x requires explicit registration of external ALE environments.
     gym.register_envs(ale_py)
-    env = gym.make(env_id, frameskip=1, repeat_action_probability=0.0)
+    env = gym.make(env_id, frameskip=1, repeat_action_probability=0.0, render_mode=render_mode)
     wrapped = DQNEnv(env)
     if seed is not None:
         wrapped.reset(seed=seed)
