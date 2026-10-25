@@ -38,6 +38,13 @@ def load_config(path: str | Path) -> dict[str, Any]:
         integer('training', key)
     integer('training', 'learning_starts', 0)
     integer('training', 'checkpoint_frequency', 0)
+    if 'log_frequency' in config['training']:
+        integer('training', 'log_frequency')
+    for key in ['checkpoint_keep', 'validation_frequency']:
+        if key in config['training']:
+            integer('training', key, 0)
+    if 'noop_max' in config['environment']:
+        integer('environment', 'noop_max', 0)
     integer('replay', 'capacity')
     integer('evaluation', 'episodes')
     if 'max_steps_per_episode' in config['evaluation']:
@@ -46,6 +53,16 @@ def load_config(path: str | Path) -> dict[str, Any]:
         integer('evaluation', 'seed', 0)
     if config['replay']['capacity'] < config['training']['batch_size']:
         raise ValueError('replay.capacity must be >= training.batch_size')
+    storage = config['replay'].get('storage', 'stacks')
+    if storage not in {'frames', 'stacks'}:
+        raise ValueError('replay.storage must be frames or stacks')
+    if storage == 'frames':
+        if config['replay'].get('type') != 'uniform':
+            raise ValueError('frame storage currently supports uniform replay only')
+        if config['replay']['capacity'] < max(8, config['training']['batch_size'] + 4):
+            raise ValueError('frame replay capacity must be >= batch_size + 4 and >= 8')
+    if config['training'].get('optimizer', 'rmsprop') not in {'rmsprop', 'nature_rmsprop'}:
+        raise ValueError('unknown training.optimizer')
     if config['replay'].get('type') not in {'uniform', 'prioritized'}:
         raise ValueError('replay.type must be uniform or prioritized')
     if config['replay']['type'] == 'prioritized':

@@ -25,12 +25,18 @@ def evaluate_policy(
     device: str | torch.device = "cpu",
     max_steps_per_episode: int | None = None,
     render: bool = False,
+    noop_max: int = 0,
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
-    env = make_env(env_id, render_mode="human") if render else make_env(env_id)
+    options = {}
+    if render:
+        options['render_mode'] = 'human'
+    if noop_max:
+        options['noop_max'] = noop_max
+    env = make_env(env_id, **options)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
@@ -121,6 +127,7 @@ def main() -> None:
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
         render=args.render,
+        noop_max=int(config['environment'].get('noop_max', 0)),
     )
     result.update(
         {

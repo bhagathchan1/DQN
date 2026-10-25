@@ -29,12 +29,16 @@ class DQNEnv:
     either signal but only true termination disables Bellman bootstrapping.
     """
 
-    def __init__(self, env: Any, frame_stack: int = 4, action_repeat: int = 4) -> None:
+    def __init__(self, env: Any, frame_stack: int = 4, action_repeat: int = 4,
+                 noop_max: int = 0) -> None:
         if frame_stack <= 0 or action_repeat <= 0:
             raise ValueError("frame_stack and action_repeat must be positive")
         self.env = env
         self.frame_stack = frame_stack
         self.action_repeat = action_repeat
+        self.noop_max = noop_max
+        self.rng = np.random.default_rng()
+        self.lives = None
         self.frames: deque[np.ndarray] = deque(maxlen=frame_stack)
 
     @property
@@ -43,6 +47,14 @@ class DQNEnv:
 
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict[str, Any]]:
         observation, info = self.env.reset(**kwargs)
+        if kwargs.get('seed') is not None:
+            self.rng = np.random.default_rng(kwargs['seed'])
+        if self.noop_max:
+            for _ in range(int(self.rng.integers(1, self.noop_max + 1))):
+                observation, _, terminated, truncated, info = self.env.step(0)
+                if terminated or truncated:
+                    observation, info = self.env.reset()
+        self.lives = info.get('lives')
         processed = preprocess_frame(observation)
         self.frames.clear()
         self.frames.extend(processed.copy() for _ in range(self.frame_stack))
@@ -62,6 +74,11 @@ class DQNEnv:
                 break
         pooled = np.maximum(recent[-1], recent[-2]) if len(recent) >= 2 else recent[-1]
         self.frames.append(preprocess_frame(pooled))
+        info = dict(info)
+        lives = info.get('lives')
+        info['life_lost'] = lives is not None and self.lives is not None and lives < self.lives
+        info['emulator_frames'] = len(recent)
+        self.lives = lives
         return self._state(), total_reward, bool(terminated), bool(truncated), info
 
     def _state(self) -> np.ndarray:
@@ -71,7 +88,8 @@ class DQNEnv:
         self.env.close()
 
 
-def make_env(env_id: str, seed: int | None = None, render_mode: str | None = None) -> DQNEnv:
+def make_env(env_id: str, seed: int | None = None, render_mode: str | None = None,
+             noop_max: int = 0) -> DQNEnv:
     """Create an image-observation Gymnasium environment.
 
     Gymnasium is imported lazily so model/replay tests do not require Atari extras.
@@ -84,7 +102,7 @@ def make_env(env_id: str, seed: int | None = None, render_mode: str | None = Non
     # Gymnasium 1.x requires explicit registration of external ALE environments.
     gym.register_envs(ale_py)
     env = gym.make(env_id, frameskip=1, repeat_action_probability=0.0, render_mode=render_mode)
-    wrapped = DQNEnv(env)
+    wrapped = DQNEnv(env, noop_max=noop_max)
     if seed is not None:
         wrapped.reset(seed=seed)
         wrapped.action_space.seed(seed)

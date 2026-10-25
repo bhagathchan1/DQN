@@ -1,0 +1,40 @@
+# Paper-table settings; budget follows DeepMind's released run_cpu steps=50000000.
+# All *_steps count selected actions, each repeated for up to four emulator frames.
+run:
+  id: nature_breakout_seed7
+  seed: 7
+environment:
+  id: ALE/Breakout-v5
+  noop_max: 30
+training:
+  device: auto
+  total_environment_steps: 50000000
+  learning_starts: 50000
+  batch_size: 32
+  gamma: 0.99
+  learning_rate: 0.00025
+  optimizer: nature_rmsprop
+  gradient_clip: null
+  train_frequency: 4
+  # As stated in Extended Data Table 1: measured in parameter updates.
+  target_update_frequency: 10000
+  checkpoint_frequency: 250000
+  checkpoint_keep: 2
+  validation_frequency: 250000
+  log_frequency: 10000
+  epsilon_start: 1.0
+  epsilon_end: 0.1
+  epsilon_decay_steps: 1000000
+  epsilon_after_warmup: true
+  terminal_on_life_loss: true
+  clip_rewards: true
+replay:
+  type: uniform
+  storage: frames
+  capacity: 1000000
+  # Disk-backed, ~6.6 GiB per game/seed. An SSD is strongly preferred.
+  directory: replay
+evaluation:
+  episodes: 30
+  epsilon: 0.05
+  max_steps_per_episode: 4500

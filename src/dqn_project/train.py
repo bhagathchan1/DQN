@@ -18,6 +18,7 @@ from .learner import DQNLearner
 from .logging_utils import MetricsLogger
 from .prioritized_replay import PrioritizedReplayBuffer
 from .replay_buffer import ReplayBuffer
+from .frame_replay import FrameReplayBuffer
 
 
 def _git_revision() -> str:
@@ -55,13 +56,15 @@ def train(config_path: str) -> Path:
     rng = np.random.default_rng(seed)
     device = _device(str(train_cfg.get("device", "auto")))
 
-    env = make_env(env_cfg["id"])
+    env = make_env(env_cfg["id"], noop_max=int(env_cfg.get('noop_max', 0)))
     action_count = int(env.action_space.n)
     learner = DQNLearner(
         action_count,
         gamma=float(train_cfg["gamma"]),
         learning_rate=float(train_cfg["learning_rate"]),
         device=device,
+        optimizer=train_cfg.get('optimizer', 'rmsprop'),
+        gradient_clip=train_cfg.get('gradient_clip', 10.0),
     )
     replay_type = replay_cfg["type"]
     common = {
@@ -76,7 +79,10 @@ def train(config_path: str) -> Path:
             priority_epsilon=float(replay_cfg["priority_epsilon"]),
         )
     elif replay_type == "uniform":
-        replay = ReplayBuffer(**common)
+        if replay_cfg.get('storage') == 'frames':
+            replay = FrameReplayBuffer(**common, directory=replay_cfg.get('directory'))
+        else:
+            replay = ReplayBuffer(**common)
     else:
         raise ValueError("replay.type must be 'uniform' or 'prioritized'")
 
@@ -101,17 +107,23 @@ def train(config_path: str) -> Path:
     target_update_frequency = int(train_cfg["target_update_frequency"])
     checkpoint_frequency = int(train_cfg["checkpoint_frequency"])
     beta_start = float(replay_cfg.get("beta_start", 0.4))
+    emulator_frames = 0
+    saved_checkpoints = []
+    best_validation = -float('inf')
 
     try:
         for step in range(1, total_steps + 1):
-            epsilon = schedule.value(step - 1)
+            offset = learning_starts if train_cfg.get('epsilon_after_warmup', False) else 0
+            epsilon = schedule.value(max(0, step - 1 - offset))
             if step <= learning_starts:
                 action = int(rng.integers(action_count))
             else:
                 action = select_action(learner.online, state, action_count, epsilon, rng, device)
-            next_state, reward, terminated, truncated, _ = env.step(action)
+            next_state, reward, terminated, truncated, info = env.step(action)
+            emulator_frames += info.get('emulator_frames', 4)
             clipped_reward = float(np.sign(reward)) if train_cfg.get("clip_rewards", True) else reward
-            replay.add(state, action, clipped_reward, next_state, terminated)
+            learning_terminal = terminated or (train_cfg.get('terminal_on_life_loss', False) and info.get('life_lost', False))
+            replay.add(state, action, clipped_reward, next_state, learning_terminal)
             state = next_state
             episode_reward += reward
             episode_length += 1
@@ -132,7 +144,7 @@ def train(config_path: str) -> Path:
                     run_id=run_id,
                     seed=seed,
                     environment_steps=step,
-                    frames=step * 4,
+                    frames=emulator_frames,
                     episode=episode,
                     episode_reward=episode_reward,
                     episode_length=episode_length,
@@ -147,10 +159,19 @@ def train(config_path: str) -> Path:
                 episode_reward = 0.0
                 episode_length = 0
                 state, _ = env.reset()
+                if isinstance(replay, FrameReplayBuffer):
+                    replay.start_episode()
+
+            log_frequency = int(train_cfg.get('log_frequency', 10000))
+            if step % log_frequency == 0:
+                print(f'step={step}/{total_steps} frames={emulator_frames} '
+                      f'updates={learner.update_count} loss={latest_loss:.5f} '
+                      f'epsilon={epsilon:.3f}', flush=True)
 
             if checkpoint_frequency > 0 and step % checkpoint_frequency == 0:
+                checkpoint_path = Path("checkpoints") / f"{run_id}_step_{step}.pt"
                 learner.save(
-                    Path("checkpoints") / f"{run_id}_step_{step}.pt",
+                    checkpoint_path,
                     metadata={
                         "run_id": run_id,
                         "environment_id": env_cfg["id"],
@@ -161,8 +182,37 @@ def train(config_path: str) -> Path:
                         "config": config,
                     },
                 )
+                saved_checkpoints.append(checkpoint_path)
+                keep = int(train_cfg.get('checkpoint_keep', 0))
+                if keep and len(saved_checkpoints) > keep:
+                    saved_checkpoints.pop(0).unlink()
+
+            validation_frequency = int(train_cfg.get('validation_frequency', 0))
+            if validation_frequency and step % validation_frequency == 0:
+                from .evaluate import evaluate_policy
+                evaluation = config['evaluation']
+                score = evaluate_policy(
+                    learner.online, env_cfg['id'], int(evaluation['episodes']),
+                    float(evaluation['epsilon']), (seed + 1000000) % 2**32, device,
+                    int(evaluation.get('max_steps_per_episode', 4500)),
+                    noop_max=int(env_cfg.get('noop_max', 0)))
+                logger.log(run_id=run_id, seed=seed, environment_steps=step,
+                           frames=emulator_frames, event='validation', replay_type=replay_type,
+                           evaluation_reward_mean=score['reward_mean'],
+                           evaluation_reward_std=score['reward_std'])
+                print(f"validation step={step} mean={score['reward_mean']:.3f}", flush=True)
+                if score['reward_mean'] > best_validation:
+                    best_validation = score['reward_mean']
+                    learner.save(Path('checkpoints') / f'{run_id}_best.pt', metadata={
+                        'run_id': run_id, 'environment_id': env_cfg['id'],
+                        'environment_steps': step, 'seed': seed, 'config': config,
+                        'selection': 'highest mean validation return',
+                        'validation_reward_mean': best_validation,
+                        'git_revision': _git_revision()})
     finally:
         env.close()
+        if isinstance(replay, FrameReplayBuffer):
+            replay.close()
 
     final_path = Path("checkpoints") / f"{run_id}_final.pt"
     learner.save(

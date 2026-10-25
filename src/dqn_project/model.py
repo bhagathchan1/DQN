@@ -51,9 +51,10 @@ class DQN(nn.Module):
             raise ValueError(
                 f"expected [batch, {self.input_channels}, 84, 84], got {tuple(states.shape)}"
             )
+        # Use the input contract, not the brightest pixel: dark uint8 frames must
+        # still be normalized, without a GPU-to-host synchronization per forward.
+        byte_input = states.dtype == torch.uint8
         states = states.to(dtype=torch.float32)
-        if not states.is_floating_point():  # pragma: no cover - conversion above is explicit
-            raise TypeError("states must be numeric")
-        if states.numel() and states.detach().max() > 1.0:
+        if byte_input:
             states = states / 255.0
         return self.head(self.features(states))

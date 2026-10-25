@@ -20,6 +20,14 @@ smaller compute and replay budget than the original 49-game, 50-million-frame st
 
 ## Quick start
 
+For paper-scale Atari training across one or all 49 games, and the desktop
+human/AI comparison UI, see [Atari Lab](docs/atari_lab.md).
+
+```bash
+python -m dqn_project.pipeline --config configs/nature.yaml --games Breakout Pong --output experiments/nature-smoke --smoke
+python -m dqn_project.play --checkpoint-dir experiments/nature-smoke --games Breakout Pong
+```
+
 For the new single-command training/testing pipeline, Windows instructions,
 isolated multi-seed runs and live gameplay, see [pipeline guide](docs/pipeline.md).
 

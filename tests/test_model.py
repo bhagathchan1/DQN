@@ -6,6 +6,11 @@ from dqn_project.model import DQN
 
 
 class ModelTests(unittest.TestCase):
+    def test_dark_uint8_matches_normalized_float(self) -> None:
+        model = DQN(action_count=2)
+        pixels = torch.ones((1, 4, 84, 84), dtype=torch.uint8)
+        torch.testing.assert_close(model(pixels), model(pixels.float() / 255.0))
+
     def test_output_shape_and_finite_values(self) -> None:
         model = DQN(action_count=6)
         output = model(torch.randint(0, 256, (2, 4, 84, 84), dtype=torch.uint8))

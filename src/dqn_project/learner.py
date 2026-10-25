@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from .model import DQN
+from .optimizer import NatureRMSprop
 from .replay_buffer import ReplayBatch
 
 
@@ -30,6 +31,8 @@ class DQNLearner:
         gamma: float = 0.99,
         learning_rate: float = 2.5e-4,
         device: str | torch.device = "cpu",
+        optimizer: str = "rmsprop",
+        gradient_clip: float | None = 10.0,
     ) -> None:
         if not 0 <= gamma <= 1:
             raise ValueError("gamma must be in [0, 1]")
@@ -37,9 +40,15 @@ class DQNLearner:
         self.gamma = gamma
         self.online = DQN(action_count, input_channels).to(self.device)
         self.target = DQN(action_count, input_channels).to(self.device)
-        self.optimizer = torch.optim.RMSprop(
-            self.online.parameters(), lr=learning_rate, alpha=0.95, eps=0.01
-        )
+        self.optimizer_name = optimizer
+        self.gradient_clip = gradient_clip
+        if optimizer == 'nature_rmsprop':
+            self.optimizer = NatureRMSprop(self.online.parameters(), lr=learning_rate)
+        elif optimizer == 'rmsprop':
+            self.optimizer = torch.optim.RMSprop(
+                self.online.parameters(), lr=learning_rate, alpha=0.95, eps=0.01)
+        else:
+            raise ValueError('unknown optimizer')
         self.update_count = 0
         self.sync_target()
         self.target.eval()
@@ -69,13 +78,15 @@ class DQNLearner:
         targets = self.compute_targets(rewards, next_states, terminated)
         td_errors = targets - predicted
         per_item_loss = nn.functional.smooth_l1_loss(predicted, targets, reduction="none")
-        loss = (weights * per_item_loss).mean()
+        weighted = weights * per_item_loss
+        loss = weighted.sum() if self.optimizer_name == 'nature_rmsprop' else weighted.mean()
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite DQN loss")
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=10.0)
+        if self.gradient_clip is not None:
+            nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=self.gradient_clip)
         self.optimizer.step()
         self.update_count += 1
         return UpdateMetrics(
@@ -96,6 +107,7 @@ class DQNLearner:
                 "online": self.online.state_dict(),
                 "target": self.target.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
+                "optimizer_name": self.optimizer_name,
                 "update_count": self.update_count,
                 "gamma": self.gamma,
                 "action_count": self.online.action_count,

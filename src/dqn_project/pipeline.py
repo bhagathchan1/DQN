@@ -37,8 +37,11 @@ def run_stage(module: str, arguments: list[str], directory: Path, name: str) -> 
 
 
 def run_pipeline(config_path: str, output: str, seeds: list[int] | None = None,
-                 smoke: bool = False, device: str | None = None) -> Path:
+                 smoke: bool = False, device: str | None = None,
+                 env_id: str | None = None) -> Path:
     config = load_config(config_path)
+    if env_id:
+        config['environment']['id'] = env_id
     seeds = seeds if seeds is not None else [int(config['run']['seed'])]
     if not seeds or len(set(seeds)) != len(seeds) or any(s < 0 or s >= 2**32 - 10000 for s in seeds):
         raise ValueError('seeds must be unique nonnegative integers below 2**32 - 10000')
@@ -74,7 +77,8 @@ def run_pipeline(config_path: str, output: str, seeds: list[int] | None = None,
                 current['training']['device'] = device
             if smoke:
                 current['training'].update(total_environment_steps=64, learning_starts=16,
-                                           batch_size=8, checkpoint_frequency=0,
+                                           batch_size=8, checkpoint_frequency=32,
+                                           checkpoint_keep=1, validation_frequency=32,
                                            target_update_frequency=2, epsilon_decay_steps=64)
                 current['replay']['capacity'] = 64
                 current['evaluation'].update(episodes=2, max_steps_per_episode=100)
@@ -134,8 +138,22 @@ def main() -> None:
     parser.add_argument('--seeds', nargs='+', type=int)
     parser.add_argument('--device', choices=['auto', 'cpu', 'cuda', 'mps'])
     parser.add_argument('--smoke', action='store_true', help='64 decisions; validates plumbing, not learning')
+    parser.add_argument('--games', nargs='+', help='ALE game names, e.g. Breakout Pong Seaquest')
     args = parser.parse_args()
-    print(run_pipeline(args.config, args.output, args.seeds, args.smoke, args.device))
+    if args.games:
+        import re
+        if args.games == ['all']:
+            from .games import NATURE_GAMES
+            args.games = list(NATURE_GAMES)
+        if len(set(args.games)) != len(args.games) or any(not re.fullmatch('[A-Za-z0-9]+', g) for g in args.games):
+            parser.error('--games requires unique ALE game names, without ALE/ or -v5')
+        root = Path(args.output).resolve()
+        root.mkdir(parents=True, exist_ok=False)
+        for game in args.games:
+            print(run_pipeline(args.config, str(root / game), args.seeds, args.smoke,
+                               args.device, f'ALE/{game}-v5'))
+    else:
+        print(run_pipeline(args.config, args.output, args.seeds, args.smoke, args.device))
 
 
 if __name__ == '__main__':

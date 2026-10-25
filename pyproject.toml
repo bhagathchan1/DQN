@@ -19,12 +19,14 @@ dependencies = [
 env = ["gymnasium[atari]>=1.0", "ale-py>=0.10"]
 analysis = ["matplotlib>=3.8", "pandas>=2.1"]
 test = ["pytest>=8"]
+ui = ["pygame-ce>=2.5"]
 all = [
   "gymnasium[atari]>=1.0",
   "ale-py>=0.10",
   "matplotlib>=3.8",
   "pandas>=2.1",
   "pytest>=8",
+  "pygame-ce>=2.5",
 ]
 
 [project.scripts]
@@ -32,6 +34,7 @@ dqn-train = "dqn_project.train:main"
 dqn-evaluate = "dqn_project.evaluate:main"
 dqn-plot = "dqn_project.plot_results:main"
 dqn-pipeline = "dqn_project.pipeline:main"
+dqn-play = "dqn_project.play:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
