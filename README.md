@@ -6,7 +6,20 @@ replay extension. It is scoped as a course reproduction: the code follows the pa
 visual architecture and learning mechanics, while the default experiment uses a much
 smaller compute and replay budget than the original 49-game, 50-million-frame study.
 
-## What is implemented
+## Three-member module allocation
+
+See the [team module guide](modules/README.md) for roles, implementation ownership,
+handoff contracts and deliverables:
+
+- Member 1: [dataset and experience generation](modules/01_dataset/README.md).
+- Member 2: [training pipeline](modules/02_training/README.md).
+- Member 3: [testing and evaluation](modules/03_testing/README.md).
+- Shared, led by Member 3: [human-versus-agent UI](modules/04_ui/README.md).
+
+Dataset generation means online gameplay experience and replay storage in this
+DQN project. The existing desktop UI supports human/AI score competition on matched rounds.
+
+## Implemented features
 
 - 84 x 84 x 4 visual input, three convolutional layers, 512-unit hidden layer.
 - Separate online and target Q-networks, one-step Bellman targets, Huber loss,
