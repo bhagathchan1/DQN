@@ -9,9 +9,27 @@ import numpy as np
 from PIL import Image
 
 
-def preprocess_frame(frame: np.ndarray, size: tuple[int, int] = (84, 84)) -> np.ndarray:
+def preprocess_frame(
+    frame: np.ndarray,
+    size: tuple[int, int] = (84, 84),
+    method: str = "pillow",
+) -> np.ndarray:
     """Convert HxW[xC] observation to uint8 luminance at the requested size."""
     array = np.asarray(frame)
+    if method == "opencv":
+        try:
+            import cv2
+        except ImportError as exc:  # pragma: no cover - optional Atari dependency
+            raise RuntimeError("install OpenCV for upstream preprocessing: pip install opencv-python-headless") from exc
+        if array.ndim == 3 and array.shape[-1] >= 3:
+            array = cv2.cvtColor(array[..., :3], cv2.COLOR_RGB2GRAY)
+        elif array.ndim != 2:
+            raise ValueError(f"expected HxW or HxWxC frame, got {array.shape}")
+        return cv2.resize(
+            np.clip(array, 0, 255).astype(np.uint8), size, interpolation=cv2.INTER_AREA
+        ).astype(np.uint8)
+    if method != "pillow":
+        raise ValueError("method must be 'pillow' or 'opencv'")
     if array.ndim == 3 and array.shape[-1] >= 3:
         rgb = array[..., :3].astype(np.float32)
         array = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
@@ -25,16 +43,24 @@ def preprocess_frame(frame: np.ndarray, size: tuple[int, int] = (84, 84)) -> np.
 class DQNEnv:
     """Gymnasium-compatible adapter with max-pooling, action repeat and frame stacks.
 
-    `terminated` is preserved separately from `truncated`. The training loop resets on
-    either signal but only true termination disables Bellman bootstrapping.
+    `terminated` is preserved separately from `truncated`. The project pipeline uses
+    true MDP terminals; the upstream pipeline intentionally treats life loss as a
+    terminal training boundary to match its episodic-life wrapper.
     """
 
-    def __init__(self, env: Any, frame_stack: int = 4, action_repeat: int = 4) -> None:
+    def __init__(
+        self,
+        env: Any,
+        frame_stack: int = 4,
+        action_repeat: int = 4,
+        preprocessing: str = "pillow",
+    ) -> None:
         if frame_stack <= 0 or action_repeat <= 0:
             raise ValueError("frame_stack and action_repeat must be positive")
         self.env = env
         self.frame_stack = frame_stack
         self.action_repeat = action_repeat
+        self.preprocessing = preprocessing
         self.frames: deque[np.ndarray] = deque(maxlen=frame_stack)
 
     @property
@@ -43,7 +69,7 @@ class DQNEnv:
 
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict[str, Any]]:
         observation, info = self.env.reset(**kwargs)
-        processed = preprocess_frame(observation)
+        processed = preprocess_frame(observation, method=self.preprocessing)
         self.frames.clear()
         self.frames.extend(processed.copy() for _ in range(self.frame_stack))
         return self._state(), info
@@ -61,7 +87,7 @@ class DQNEnv:
             if terminated or truncated:
                 break
         pooled = np.maximum(recent[-1], recent[-2]) if len(recent) >= 2 else recent[-1]
-        self.frames.append(preprocess_frame(pooled))
+        self.frames.append(preprocess_frame(pooled, method=self.preprocessing))
         return self._state(), total_reward, bool(terminated), bool(truncated), info
 
     def _state(self) -> np.ndarray:
@@ -71,7 +97,12 @@ class DQNEnv:
         self.env.close()
 
 
-def make_env(env_id: str, seed: int | None = None) -> DQNEnv:
+def make_env(
+    env_id: str,
+    seed: int | None = None,
+    pipeline: str = "project",
+    clip_rewards: bool = False,
+) -> DQNEnv:
     """Create an image-observation Gymnasium environment.
 
     Gymnasium is imported lazily so model/replay tests do not require Atari extras.
@@ -84,7 +115,27 @@ def make_env(env_id: str, seed: int | None = None) -> DQNEnv:
     # Gymnasium 1.x requires explicit registration of external ALE environments.
     gym.register_envs(ale_py)
     env = gym.make(env_id, frameskip=1, repeat_action_probability=0.0)
-    wrapped = DQNEnv(env)
+    if pipeline == "upstream":
+        from .upstream_data import (
+            EpisodicLifeEnv,
+            FireResetEnv,
+            MaxAndSkipEnv,
+            NoopResetEnv,
+            SignClipRewardEnv,
+        )
+
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        env = FireResetEnv(env)
+        if clip_rewards:
+            env = SignClipRewardEnv(env)
+        wrapped = DQNEnv(env, action_repeat=1, preprocessing="opencv")
+    elif pipeline == "project":
+        wrapped = DQNEnv(env)
+    else:
+        env.close()
+        raise ValueError("pipeline must be 'project' or 'upstream'")
     if seed is not None:
         wrapped.reset(seed=seed)
         wrapped.action_space.seed(seed)

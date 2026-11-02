@@ -24,12 +24,13 @@ def evaluate_policy(
     seed: int,
     device: str | torch.device = "cpu",
     max_steps_per_episode: int | None = None,
+    pipeline: str = "project",
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
-    env = make_env(env_id)
+    env = make_env(env_id, pipeline=pipeline, clip_rewards=False)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
@@ -46,16 +47,23 @@ def evaluate_policy(
                     action = select_action(
                         network, state, env.action_space.n, epsilon, rng, device
                     )
-                state, reward, terminated, truncated, _ = env.step(action)
+                state, reward, terminated, truncated, step_info = env.step(action)
                 total_reward += reward
                 length += 1
-                done = (
-                    terminated
-                    or truncated
-                    or (
-                        max_steps_per_episode is not None
-                        and length >= max_steps_per_episode
-                    )
+                life_boundary = bool(
+                    pipeline == "upstream"
+                    and terminated
+                    and step_info.get("episodic_life")
+                    and int(step_info.get("ale.lives", 0)) > 0
+                )
+                if life_boundary and (
+                    max_steps_per_episode is None or length < max_steps_per_episode
+                ):
+                    state, _ = env.reset()
+                    continue
+                done = terminated or truncated or (
+                    max_steps_per_episode is not None
+                    and length >= max_steps_per_episode
                 )
             rewards.append(total_reward)
             lengths.append(length)
@@ -115,6 +123,7 @@ def main() -> None:
         int(config["run"]["seed"]),
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
+        str(config["environment"].get("pipeline", "project")),
     )
     result.update(
         {

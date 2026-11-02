@@ -52,7 +52,12 @@ def train(config_path: str) -> Path:
     rng = np.random.default_rng(seed)
     device = _device(str(train_cfg.get("device", "auto")))
 
-    env = make_env(env_cfg["id"])
+    pipeline = str(env_cfg.get("pipeline", "project"))
+    env = make_env(
+        env_cfg["id"],
+        pipeline=pipeline,
+        clip_rewards=bool(train_cfg.get("clip_rewards", True)),
+    )
     action_count = int(env.action_space.n)
     learner = DQNLearner(
         action_count,

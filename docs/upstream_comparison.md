@@ -2,9 +2,11 @@
 
 The target repository is
 [jihoonerd/Human-level-control-through-deep-reinforcement-learning](https://github.com/jihoonerd/Human-level-control-through-deep-reinforcement-learning).
-This project's tested results are a compute-bounded, paper-oriented Breakout
+This project's completed results are a compute-bounded, paper-oriented Breakout
 reproduction with a prioritized-replay extension; they are not a reproduction of that
-repository's exact training run or result curves.
+repository's exact training run or result curves. An optional upstream-style Atari data
+pipeline is now available for new data-collection runs; the existing completed runs
+continue to use the project pipeline described in their recorded configs.
 
 ## What aligns
 
@@ -22,8 +24,8 @@ repository's exact training run or result curves.
 | Training budget | `training_frames = 10^7` selected steps, with four emulator frames per step (~40M emulator frames) | 250,000 selected steps/run (~1M emulator frames) | The upstream run is 40× longer; scores and learning curves are not comparable. |
 | Optimizer | Adam, learning rate 0.0001, epsilon 1e-6 | PyTorch RMSProp, learning rate 0.00025 | The project setting follows the paper-oriented protocol more closely, not the GitHub code. |
 | Target synchronization | Every 1,000 selected environment steps | Every 10,000 learner updates (one update per four selected steps) | Synchronization cadence differs substantially. |
-| Reset wrappers | Random no-op reset (1–30), episodic-life handling, and FIRE reset where applicable | Seeded resets; no no-op, episodic-life, or FIRE wrapper | Initial states and episode boundaries differ. |
-| Image resize | OpenCV RGB-to-gray and `INTER_AREA` resize | Pillow luminance conversion and bilinear resize | Pixel values can differ even for the same game state. |
+| Reset wrappers | Random no-op reset (1–30), episodic-life handling, and FIRE reset where applicable | Completed runs: seeded resets only. Optional `pipeline: upstream`: no-op, episodic-life, and FIRE wrappers | Existing results remain on their original reset protocol. |
+| Image resize | OpenCV RGB-to-gray and `INTER_AREA` resize | Completed runs: Pillow luminance and bilinear resize. Optional `pipeline: upstream`: OpenCV grayscale and `INTER_AREA` | Existing results remain on their original pixel pipeline. |
 | Exploration | 1.0 to 0.1 by 1M selected steps, then anneals toward 0.01 by 25M (the default 10M-step run ends before that) | 1.0 to 0.1 by 250,000 selected steps | Schedule and late-training exploration differ. |
 | Evaluation | Greedy policy; five trials, then reports the best score; up to ten-minute safety cap | Epsilon 0.05; ten held-out episodes; reports mean/spread; five-minute cap | The project reports a more stable mean, but not the same evaluation protocol. |
 | Scope | README shows Atlantis, Boxing, Breakout and Pong examples | Breakout only; three matched training seeds; prioritized replay added as an extension | The project does not claim the upstream multi-game coverage. |
@@ -31,12 +33,14 @@ repository's exact training run or result curves.
 ## Audit conclusion
 
 Nothing in the linked repository changes the validity of the already reported
-course-scale comparison, but the two projects are not implementation-equivalent. If
-exact parity with the GitHub repository is required, a separate upstream-parity config
-and new runs are needed; existing checkpoints must not be relabeled as upstream runs.
+course-scale comparison, but the two projects are not implementation-equivalent. The
+optional pipeline aligns Atari data preparation only; exact learner/training parity
+and new runs are still needed. Existing checkpoints must not be relabeled as upstream
+runs.
 The linked repository's original visual files are retained under
 `assets/upstream_dqn/` with attribution and are labeled as upstream material in the
-README and showcase deck.
+README and showcase deck. For the online transition schema and a sample-data collector,
+see `docs/upstream_data_pipeline.md`.
 
 ## Inspected upstream files
 
