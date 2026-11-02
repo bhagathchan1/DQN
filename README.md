@@ -15,6 +15,8 @@ smaller compute and replay budget than the original 49-game, 50-million-frame st
   four-frame stacking.
 - Epsilon-greedy exploration and uniform circular replay.
 - Optional proportional prioritized replay with importance-sampling weights.
+- Separate upstream-compatible training profile with online Atari replay collection,
+  Adam, the linked exploration/update schedule, best-of-five evaluation and gameplay GIFs.
 - CSV metrics, checkpoint evaluation, random baseline, plots and summary tables.
 - Unit and integration tests for the agreed interfaces.
 
@@ -49,6 +51,23 @@ dqn-train --config configs/default.yaml
 dqn-train --config configs/prioritized.yaml
 ```
 
+To run the longer upstream-compatible Breakout profile on a GPU:
+
+```bash
+dqn-train --config configs/upstream_breakout.yaml
+dqn-evaluate --config configs/upstream_breakout.yaml \
+  --checkpoint checkpoints/breakout_upstream_port_seed7_final.pt \
+  --output results/metrics/upstream_breakout_evaluation.json \
+  --video results/evaluations/upstream_breakout_best.gif
+```
+
+This profile uses online replay data, a 10-million-decision budget, upstream Atari
+preprocessing and training schedules, and best-of-five greedy evaluation. It is a
+PyTorch/Gymnasium port, so it does not guarantee identical random streams or scores to
+the original TensorFlow/Gym implementation. Use
+[`notebooks/07_colab_gpu_breakout.ipynb`](notebooks/07_colab_gpu_breakout.ipynb) to run
+the profile in Colab and save outputs on Drive.
+
 Evaluate saved agents and the random baseline with the same episode protocol:
 
 ```bash
@@ -71,7 +90,7 @@ dqn-plot results/metrics/breakout_uniform_seed7.csv \
 
 - `src/dqn_project/`: model, learner, agent, environment, replay, training,
   evaluation and plotting code.
-- `configs/`: matched uniform/prioritized experiment definitions.
+- `configs/`: matched uniform/prioritized experiments and upstream-compatible profile.
 - `tests/`: fast tests using synthetic tensors and a fake image environment.
 - `docs/SPEC.md`: binding interface contract and acceptance checklist.
 - `docs/experiment_protocol.md`: experiment design, logging schema and deviations.

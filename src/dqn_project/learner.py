@@ -30,18 +30,39 @@ class DQNLearner:
         gamma: float = 0.99,
         learning_rate: float = 2.5e-4,
         device: str | torch.device = "cpu",
+        optimizer: str = "rmsprop",
+        optimizer_epsilon: float = 0.01,
+        gradient_clip_mode: str = "global",
+        initializer: str = "pytorch",
+        initialize_target_from_online: bool = True,
     ) -> None:
         if not 0 <= gamma <= 1:
             raise ValueError("gamma must be in [0, 1]")
         self.device = torch.device(device)
         self.gamma = gamma
-        self.online = DQN(action_count, input_channels).to(self.device)
-        self.target = DQN(action_count, input_channels).to(self.device)
-        self.optimizer = torch.optim.RMSprop(
-            self.online.parameters(), lr=learning_rate, alpha=0.95, eps=0.01
-        )
+        if optimizer not in {"rmsprop", "adam"}:
+            raise ValueError("optimizer must be 'rmsprop' or 'adam'")
+        if gradient_clip_mode not in {"global", "per_parameter"}:
+            raise ValueError("gradient_clip_mode must be 'global' or 'per_parameter'")
+        self.optimizer_name = optimizer
+        self.optimizer_epsilon = optimizer_epsilon
+        self.gradient_clip_mode = gradient_clip_mode
+        self.initializer = initializer
+        self.initialize_target_from_online = initialize_target_from_online
+        self.online = DQN(action_count, input_channels, initializer=initializer).to(self.device)
+        self.target = DQN(action_count, input_channels, initializer=initializer).to(self.device)
+        if optimizer == "adam":
+            self.optimizer = torch.optim.Adam(
+                self.online.parameters(), lr=learning_rate, eps=optimizer_epsilon
+            )
+        else:
+            self.optimizer = torch.optim.RMSprop(
+                self.online.parameters(), lr=learning_rate, alpha=0.95,
+                eps=optimizer_epsilon,
+            )
         self.update_count = 0
-        self.sync_target()
+        if initialize_target_from_online:
+            self.sync_target()
         self.target.eval()
 
     @torch.no_grad()
@@ -75,7 +96,12 @@ class DQNLearner:
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=10.0)
+        if self.gradient_clip_mode == "per_parameter":
+            for parameter in self.online.parameters():
+                if parameter.grad is not None:
+                    nn.utils.clip_grad_norm_([parameter], max_norm=10.0)
+        else:
+            nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=10.0)
         self.optimizer.step()
         self.update_count += 1
         return UpdateMetrics(
@@ -100,6 +126,11 @@ class DQNLearner:
                 "gamma": self.gamma,
                 "action_count": self.online.action_count,
                 "input_channels": self.online.input_channels,
+                "optimizer_name": self.optimizer_name,
+                "optimizer_epsilon": self.optimizer_epsilon,
+                "gradient_clip_mode": self.gradient_clip_mode,
+                "initializer": self.initializer,
+                "initialize_target_from_online": self.initialize_target_from_online,
                 "metadata": metadata or {},
             },
             path,

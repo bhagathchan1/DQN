@@ -25,22 +25,38 @@ def evaluate_policy(
     device: str | torch.device = "cpu",
     max_steps_per_episode: int | None = None,
     pipeline: str = "project",
+    selection: str = "mean",
+    video_path: str | Path | None = None,
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
-    env = make_env(env_id, pipeline=pipeline, clip_rewards=False)
+    if selection not in {"mean", "best"}:
+        raise ValueError("selection must be 'mean' or 'best'")
+    env = make_env(
+        env_id,
+        pipeline=pipeline,
+        clip_rewards=False,
+        render_mode="rgb_array" if video_path is not None else None,
+    )
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
+    best_reward = float("-inf")
+    best_frames: list[np.ndarray] = []
     try:
         for episode in range(episodes):
             state, _ = env.reset(seed=seed + episode)
             done = False
             total_reward = 0.0
             length = 0
+            frames: list[np.ndarray] = []
             while not done:
+                if video_path is not None:
+                    frame = env.render()
+                    if frame is not None:
+                        frames.append(np.asarray(frame, dtype=np.uint8))
                 if network is None:
                     action = int(rng.integers(env.action_space.n))
                 else:
@@ -67,8 +83,17 @@ def evaluate_policy(
                 )
             rewards.append(total_reward)
             lengths.append(length)
+            if total_reward > best_reward:
+                best_reward = total_reward
+                best_frames = frames
     finally:
         env.close()
+    if video_path is not None and best_frames:
+        import imageio.v2 as imageio
+
+        video_output = Path(video_path)
+        video_output.parent.mkdir(parents=True, exist_ok=True)
+        imageio.mimsave(video_output, best_frames, fps=15)
     return {
         "policy": "random" if network is None else "dqn",
         "episodes": episodes,
@@ -79,6 +104,10 @@ def evaluate_policy(
         "mean_length": float(np.mean(lengths)),
         "episode_rewards": rewards,
         "episode_lengths": lengths,
+        "selection": selection,
+        "selected_reward": best_reward if selection == "best" else float(np.mean(rewards)),
+        "best_episode_reward": best_reward,
+        "video_path": str(video_path) if video_path is not None else None,
         "max_steps_per_episode": max_steps_per_episode,
     }
 
@@ -90,6 +119,7 @@ def main() -> None:
     group.add_argument("--checkpoint")
     group.add_argument("--random-baseline", action="store_true")
     parser.add_argument("--output", default="results/metrics/evaluation.json")
+    parser.add_argument("--video", help="Optional path for a GIF of the best evaluated episode")
     args = parser.parse_args()
     config = load_config(args.config)
     requested_device = str(config["training"].get("device", "cpu"))
@@ -124,6 +154,8 @@ def main() -> None:
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
         str(config["environment"].get("pipeline", "project")),
+        str(config["evaluation"].get("selection", "mean")),
+        args.video,
     )
     result.update(
         {

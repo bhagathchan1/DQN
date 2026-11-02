@@ -38,6 +38,10 @@ environment:
   pipeline: upstream
 ```
 
-This matches the linked project's data preparation. The rest of the training protocol
-still needs separate parity settings before the experiment can be called an exact
-reproduction.
+`configs/upstream_breakout.yaml` selects the upstream-compatible training profile,
+including the optimizer, exploration schedule, update cadence, replay sampling,
+episode checkpointing, greedy best-of-five evaluation, GIFs, and TensorBoard scalars.
+The profile is a PyTorch/Gymnasium port, not the original TensorFlow/Gym runtime; RNG
+sequences and pixel/runtime edge cases can therefore differ. Completed project runs
+remain on their original configuration and need new runs to produce upstream-profile
+results.

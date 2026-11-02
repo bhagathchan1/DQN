@@ -16,13 +16,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-env = ["gymnasium[atari]>=1.0", "ale-py>=0.10", "opencv-python-headless>=4.8"]
+env = ["gymnasium[atari]>=1.0", "ale-py>=0.10", "opencv-python-headless>=4.8", "imageio>=2.31", "tensorboard>=2.14"]
 analysis = ["matplotlib>=3.8", "pandas>=2.1"]
 test = ["pytest>=8"]
 all = [
   "gymnasium[atari]>=1.0",
   "ale-py>=0.10",
   "opencv-python-headless>=4.8",
+  "imageio>=2.31",
+  "tensorboard>=2.14",
   "matplotlib>=3.8",
   "pandas>=2.1",
   "pytest>=8",

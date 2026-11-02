@@ -67,6 +67,9 @@ class DQNEnv:
     def action_space(self) -> Any:
         return self.env.action_space
 
+    def render(self) -> np.ndarray | None:
+        return self.env.render()
+
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict[str, Any]]:
         observation, info = self.env.reset(**kwargs)
         processed = preprocess_frame(observation, method=self.preprocessing)
@@ -102,6 +105,7 @@ def make_env(
     seed: int | None = None,
     pipeline: str = "project",
     clip_rewards: bool = False,
+    render_mode: str | None = None,
 ) -> DQNEnv:
     """Create an image-observation Gymnasium environment.
 
@@ -114,7 +118,12 @@ def make_env(
         raise RuntimeError("install environment extras: pip install -e '.[env]'") from exc
     # Gymnasium 1.x requires explicit registration of external ALE environments.
     gym.register_envs(ale_py)
-    env = gym.make(env_id, frameskip=1, repeat_action_probability=0.0)
+    env = gym.make(
+        env_id,
+        frameskip=1,
+        repeat_action_probability=0.0,
+        render_mode=render_mode,
+    )
     if pipeline == "upstream":
         from .upstream_data import (
             EpisodicLifeEnv,

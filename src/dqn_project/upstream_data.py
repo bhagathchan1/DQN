@@ -40,6 +40,9 @@ class NoopResetEnv:
     def close(self) -> None:
         self.env.close()
 
+    def render(self) -> np.ndarray | None:
+        return self.env.render()
+
 
 class MaxAndSkipEnv:
     """Repeat each chosen action and max-pool the final two observations."""
@@ -76,6 +79,9 @@ class MaxAndSkipEnv:
 
     def close(self) -> None:
         self.env.close()
+
+    def render(self) -> np.ndarray | None:
+        return self.env.render()
 
 
 class EpisodicLifeEnv:
@@ -127,6 +133,9 @@ class EpisodicLifeEnv:
     def close(self) -> None:
         self.env.close()
 
+    def render(self) -> np.ndarray | None:
+        return self.env.render()
+
 
 class FireResetEnv:
     """Issue FIRE and the follow-up action after reset when the game requires it."""
@@ -157,6 +166,9 @@ class FireResetEnv:
     def close(self) -> None:
         self.env.close()
 
+    def render(self) -> np.ndarray | None:
+        return self.env.render()
+
 
 class SignClipRewardEnv:
     """Clip training rewards to their sign and preserve the raw value in info."""
@@ -180,3 +192,6 @@ class SignClipRewardEnv:
 
     def close(self) -> None:
         self.env.close()
+
+    def render(self) -> np.ndarray | None:
+        return self.env.render()

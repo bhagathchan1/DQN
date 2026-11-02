@@ -37,11 +37,15 @@ class ReplayBuffer:
         capacity: int,
         state_shape: tuple[int, ...] = (4, 84, 84),
         seed: int | None = None,
+        sampling_mode: str = "project",
     ) -> None:
         if capacity <= 0:
             raise ValueError("capacity must be positive")
         self.capacity = capacity
         self.state_shape = state_shape
+        if sampling_mode not in {"project", "upstream"}:
+            raise ValueError("sampling_mode must be 'project' or 'upstream'")
+        self.sampling_mode = sampling_mode
         self.rng = np.random.default_rng(seed)
         self.states = np.empty((capacity, *state_shape), dtype=np.uint8)
         self.next_states = np.empty((capacity, *state_shape), dtype=np.uint8)
@@ -92,7 +96,21 @@ class ReplayBuffer:
             raise ValueError("batch_size must be positive")
         if self.size < batch_size:
             raise ValueError(f"need {batch_size} transitions, buffer contains {self.size}")
-        indices = self.rng.choice(self.size, size=batch_size, replace=False)
+        if self.sampling_mode == "upstream":
+            upper = self.capacity if self.size == self.capacity else self.position
+            if upper <= self.state_shape[0]:
+                raise ValueError("upstream replay needs more transitions than frame history")
+            selected: list[int] = []
+            # The source implementation samples with replacement and rejects
+            # candidate stacks that cross an episode/life boundary.
+            while len(selected) < batch_size:
+                index = int(self.rng.integers(self.state_shape[0], upper))
+                if np.any(self.terminated[index - self.state_shape[0] : index]):
+                    continue
+                selected.append(index)
+            indices = np.asarray(selected, dtype=np.int64)
+        else:
+            indices = self.rng.choice(self.size, size=batch_size, replace=False)
         return ReplayBatch(
             states=self.states[indices].copy(),
             actions=self.actions[indices].copy(),
