@@ -34,18 +34,22 @@ class ArenaRound:
         self.checkpoint = str(Path(checkpoint).resolve()) if checkpoint else ''
         self.network = None
         self.checkpoint_steps = None
-        if mode == 'ai':
-            if not checkpoint:
-                raise ValueError('Select a trained checkpoint before starting AI.')
+        self.pipeline = 'project'
+        if mode == 'ai' and not checkpoint:
+            raise ValueError('Select a trained checkpoint before starting AI.')
+        if checkpoint:
             payload = torch.load(checkpoint, map_location='cpu', weights_only=True)
             metadata = payload.get('metadata', {})
             if metadata.get('environment_id') != env_id:
                 raise ValueError('Checkpoint game does not match the selected game.')
-            self.network = DQN(payload['action_count'], payload.get('input_channels', 4))
-            self.network.load_state_dict(payload['online'])
-            self.network.eval()
+            self.pipeline = metadata.get('config', {}).get('environment', {}).get(
+                'pipeline', 'upstream' if metadata.get('profile') == 'upstream' else 'project')
+            if mode == 'ai':
+                self.network = DQN(payload['action_count'], payload.get('input_channels', 4))
+                self.network.load_state_dict(payload['online'])
+                self.network.eval()
             self.checkpoint_steps = metadata.get('environment_steps')
-        self.env = make_env(env_id, render_mode='rgb_array', noop_max=noop_max)
+        self.env = make_env(env_id, render_mode='rgb_array', noop_max=noop_max, pipeline=self.pipeline)
         try:
             if self.network and self.network.action_count != self.env.action_space.n:
                 raise ValueError('Checkpoint action count does not match the game.')
@@ -70,6 +74,11 @@ class ArenaRound:
         self.score += reward
         self.steps += 1
         self.frames += info['emulator_frames']
+        if (self.pipeline == 'upstream' and terminated and not truncated
+                and info.get('episodic_life') and int(info.get('ale.lives', 0)) > 0
+                and self.steps < self.max_steps):
+            self.state, _ = self.env.reset()
+            return
         self.done = terminated or truncated or self.steps >= self.max_steps
         if self.done:
             self.reason = 'game_over' if terminated else 'time_limit'

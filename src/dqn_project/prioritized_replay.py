@@ -17,8 +17,9 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         alpha: float = 0.6,
         priority_epsilon: float = 1e-6,
         seed: int | None = None,
+        sampling_mode: str = "project",
     ) -> None:
-        super().__init__(capacity, state_shape, seed)
+        super().__init__(capacity, state_shape, seed, sampling_mode)
         if not 0.0 <= alpha <= 1.0:
             raise ValueError("alpha must be in [0, 1]")
         if priority_epsilon <= 0:

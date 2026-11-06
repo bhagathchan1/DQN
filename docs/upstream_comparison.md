@@ -1,0 +1,57 @@
+# Comparison with the linked GitHub implementation
+
+The target repository is
+[jihoonerd/Human-level-control-through-deep-reinforcement-learning](https://github.com/jihoonerd/Human-level-control-through-deep-reinforcement-learning).
+This project's completed results are a compute-bounded, paper-oriented Breakout
+reproduction with a prioritized-replay extension; they are not a reproduction of that
+repository's exact training run or result curves. A new `configs/upstream_breakout.yaml`
+profile now ports its training settings and Atari pipeline; the existing completed runs
+continue to use the project settings described in their recorded configs.
+
+## What aligns
+
+| Element | Linked repository | This project |
+|---|---|---|
+| DQN network | 32×8×8/4, 64×4×4/2, 64×3×3/1 convolutional layers; 512-unit hidden layer; action-value outputs | Same layer dimensions and action-value head |
+| Action repeat and state | Four-frame action repeat, max-pooling, four 84×84 grayscale frames | Four-frame repeat, max-pooling, four 84×84 luminance frames |
+| Core learning | One-step target-network Q-learning, gamma 0.99, batch 32, clipped training rewards, Huber loss | Same broad mechanics |
+| Uniform replay | 10,000 replay entries | 10,000 complete stacked-state transitions |
+
+## Material differences in the completed historical runs
+
+| Element | Linked repository | This project's completed runs | Consequence |
+|---|---|---|---|
+| Training budget | `training_frames = 10^7` selected steps, with four emulator frames per step (~40M emulator frames) | 250,000 selected steps/run (~1M emulator frames) | Historical scores and learning curves are not comparable. |
+| Optimizer | Adam, learning rate 0.0001, epsilon 1e-6 | PyTorch RMSProp, learning rate 0.00025 | The project setting follows the paper-oriented protocol more closely, not the GitHub code. |
+| Target synchronization | Every 1,000 selected environment steps | Every 10,000 learner updates (one update per four selected steps) | Synchronization cadence differs substantially. |
+| Reset wrappers | Random no-op reset (1–30), episodic-life handling, and FIRE reset where applicable | Completed runs: seeded resets only. New upstream profile: no-op, episodic-life, and FIRE wrappers | Existing results remain on their original reset protocol. |
+| Image resize | OpenCV RGB-to-gray and `INTER_AREA` resize | Completed runs: Pillow luminance and bilinear resize. New upstream profile: OpenCV grayscale and `INTER_AREA` | Existing results remain on their original pixel pipeline. |
+| Exploration | 1.0 to 0.1 by 1M selected steps, then anneals toward 0.01 by 25M (the default 10M-step run ends before that) | 1.0 to 0.1 by 250,000 selected steps | Schedule and late-training exploration differ. |
+| Evaluation | Greedy policy; five trials, then reports the best score; up to ten-minute safety cap | Epsilon 0.05; ten held-out episodes; reports mean/spread; five-minute cap | The project reports a more stable mean, but not the same evaluation protocol. |
+| Scope | README shows Atlantis, Boxing, Breakout and Pong examples | Breakout only; three matched training seeds; prioritized replay added as an extension | The project does not claim the upstream multi-game coverage. |
+
+The new upstream profile also ports Adam (`lr=0.0001`, `epsilon=1e-6`), the 10,000-step
+replay warm-up, updates every four steps, target copies every 1,000 steps, the two-stage
+epsilon schedule, per-parameter gradient clipping, best-of-five greedy evaluation,
+episode checkpoints, GIF output, and TensorBoard summaries. It keeps the same DQN
+architecture and 10,000-transition uniform replay capacity.
+
+## Audit conclusion
+
+Nothing in the linked repository changes the validity of the already reported
+course-scale comparison. The new profile is a PyTorch/Gymnasium port of the linked
+training behavior, not the original TensorFlow/Gym runtime; random-number streams and
+runtime edge cases can differ. New training runs are required, and historical
+checkpoints must not be relabeled as upstream-profile runs.
+The linked repository's original visual files are retained under
+`assets/upstream_dqn/` with attribution and are labeled as upstream material in the
+README and showcase deck. For the upstream profile and online transition sample,
+see `docs/upstream_data_pipeline.md` and `configs/upstream_breakout.yaml`.
+
+## Inspected upstream files
+
+- `dqn/agent/dqn_agent.py`: default step budget, optimizer, epsilon schedule, target
+  cadence, and best-of-five evaluation.
+- `dqn/utils/atari_wrappers.py`: no-op, episodic-life, FIRE, max-skip, and resize wrappers.
+- `dqn/networks/dqn_network.py`: convolutional architecture.
+- `README.md` and `LICENSE`: asset gallery and MIT notice.

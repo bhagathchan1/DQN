@@ -24,6 +24,9 @@ def evaluate_policy(
     seed: int,
     device: str | torch.device = "cpu",
     max_steps_per_episode: int | None = None,
+    pipeline: str = "project",
+    selection: str = "mean",
+    video_path: str | Path | None = None,
     render: bool = False,
     noop_max: int = 0,
 ) -> dict[str, Any]:
@@ -31,43 +34,72 @@ def evaluate_policy(
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
+    if selection not in {"mean", "best"}:
+        raise ValueError("selection must be mean or best")
+    if render and video_path is not None:
+        raise ValueError("choose either live rendering or video recording")
     options = {}
-    if render:
-        options['render_mode'] = 'human'
+    if pipeline != 'project':
+        options['pipeline'] = pipeline
+    if render or video_path is not None:
+        options['render_mode'] = 'human' if render else 'rgb_array'
     if noop_max:
         options['noop_max'] = noop_max
     env = make_env(env_id, **options)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
+    best_reward = float("-inf")
+    best_frames: list[np.ndarray] = []
     try:
         for episode in range(episodes):
             state, _ = env.reset(seed=seed + episode)
             done = False
             total_reward = 0.0
             length = 0
+            frames: list[np.ndarray] = []
             while not done:
+                if video_path is not None:
+                    frame = env.render()
+                    if frame is not None:
+                        frames.append(np.asarray(frame, dtype=np.uint8))
                 if network is None:
                     action = int(rng.integers(env.action_space.n))
                 else:
                     action = select_action(
                         network, state, env.action_space.n, epsilon, rng, device
                     )
-                state, reward, terminated, truncated, _ = env.step(action)
+                state, reward, terminated, truncated, step_info = env.step(action)
                 total_reward += reward
                 length += 1
-                done = (
-                    terminated
-                    or truncated
-                    or (
-                        max_steps_per_episode is not None
-                        and length >= max_steps_per_episode
-                    )
+                life_boundary = bool(
+                    pipeline == "upstream"
+                    and terminated
+                    and step_info.get("episodic_life")
+                    and int(step_info.get("ale.lives", 0)) > 0
+                )
+                if life_boundary and (
+                    max_steps_per_episode is None or length < max_steps_per_episode
+                ):
+                    state, _ = env.reset()
+                    continue
+                done = terminated or truncated or (
+                    max_steps_per_episode is not None
+                    and length >= max_steps_per_episode
                 )
             rewards.append(total_reward)
             lengths.append(length)
+            if total_reward > best_reward:
+                best_reward = total_reward
+                best_frames = frames
     finally:
         env.close()
+    if video_path is not None and best_frames:
+        import imageio.v2 as imageio
+
+        video_output = Path(video_path)
+        video_output.parent.mkdir(parents=True, exist_ok=True)
+        imageio.mimsave(video_output, best_frames, fps=15)
     return {
         "policy": "random" if network is None else "dqn",
         "episodes": episodes,
@@ -78,6 +110,10 @@ def evaluate_policy(
         "mean_length": float(np.mean(lengths)),
         "episode_rewards": rewards,
         "episode_lengths": lengths,
+        "selection": selection,
+        "selected_reward": best_reward if selection == "best" else float(np.mean(rewards)),
+        "best_episode_reward": best_reward,
+        "video_path": str(video_path) if video_path is not None else None,
         "max_steps_per_episode": max_steps_per_episode,
     }
 
@@ -90,6 +126,7 @@ def main() -> None:
     group.add_argument("--random-baseline", action="store_true")
     parser.add_argument("--output", default="results/metrics/evaluation.json")
     parser.add_argument("--render", action="store_true", help="Show live gameplay")
+    parser.add_argument("--video", help="Optional path for a GIF of the best evaluated episode")
     args = parser.parse_args()
     config = load_config(args.config)
     requested_device = str(config["training"].get("device", "cpu"))
@@ -126,6 +163,9 @@ def main() -> None:
         int(config["evaluation"].get("seed", config["run"]["seed"])),
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
+        pipeline=str(config["environment"].get("pipeline", "project")),
+        selection=str(config["evaluation"].get("selection", "mean")),
+        video_path=args.video,
         render=args.render,
         noop_max=int(config['environment'].get('noop_max', 0)),
     )

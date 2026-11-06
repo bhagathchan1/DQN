@@ -9,8 +9,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env", default="ALE/Breakout-v5")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--pipeline", choices=("project", "upstream"), default="project")
     args = parser.parse_args()
-    env = make_env(args.env)
+    env = make_env(args.env, pipeline=args.pipeline)
     try:
         state, info = env.reset(seed=args.seed)
         action = env.action_space.sample()

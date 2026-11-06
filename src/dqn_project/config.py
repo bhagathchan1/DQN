@@ -61,7 +61,7 @@ def load_config(path: str | Path) -> dict[str, Any]:
             raise ValueError('frame storage currently supports uniform replay only')
         if config['replay']['capacity'] < max(8, config['training']['batch_size'] + 4):
             raise ValueError('frame replay capacity must be >= batch_size + 4 and >= 8')
-    if config['training'].get('optimizer', 'rmsprop') not in {'rmsprop', 'nature_rmsprop'}:
+    if config['training'].get('optimizer', 'rmsprop') not in {'rmsprop', 'nature_rmsprop', 'adam'}:
         raise ValueError('unknown training.optimizer')
     if config['replay'].get('type') not in {'uniform', 'prioritized'}:
         raise ValueError('replay.type must be uniform or prioritized')

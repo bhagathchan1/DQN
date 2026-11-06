@@ -81,6 +81,8 @@ def run_pipeline(config_path: str, output: str, seeds: list[int] | None = None,
                                            checkpoint_keep=1, validation_frequency=32,
                                            target_update_frequency=2, epsilon_decay_steps=64)
                 current['replay']['capacity'] = 64
+                if 'epsilon_warmup_steps' in current['training']:
+                    current['training']['epsilon_warmup_steps'] = 16
                 current['evaluation'].update(episodes=2, max_steps_per_episode=100)
             directory = output_path / run_id
             directory.mkdir()
