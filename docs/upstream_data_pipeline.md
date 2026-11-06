@@ -25,9 +25,27 @@ python scripts/collect_transition_sample.py --steps 256 --seed 7 --output data/b
 
 The compressed archive contains `states`, `actions`, clipped `rewards`, `raw_rewards`,
 `next_states`, `terminated`, `truncated`, and `episode_ids`. The companion JSON records
-the environment and schema, and a PNG tiles the first four-frame state. This sample is
-for data-pipeline inspection only; the DQN training replay is generated online and is
-not a static training file.
+the environment and schema, and a PNG tiles the first four-frame state. By default,
+the sample uses uniformly random actions and is for data-pipeline inspection.
+
+To collect transitions from a trained DQN policy instead, pass a saved checkpoint:
+
+```bash
+python scripts/collect_transition_sample.py \
+  --env ALE/Breakout-v5 \
+  --steps 5000 \
+  --seed 7 \
+  --checkpoint checkpoints/breakout_upstream_port_seed7_episode_14000.pt \
+  --epsilon 0.34 \
+  --device auto \
+  --output data/breakout_agent_sample.npz
+```
+
+This starts a fresh environment and records 5,000 new transitions using the checkpoint
+policy (with epsilon-greedy exploration at the requested rate). It is genuine agent
+policy experience, but it is a separate collection rollout, not a dump of the training
+run's replay buffer. The original training replay is generated online, has a 10,000
+transition capacity, and is not currently persisted as a dataset.
 
 The upstream pipeline can also be selected in the environment section of a YAML
 training configuration:

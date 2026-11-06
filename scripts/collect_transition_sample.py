@@ -7,9 +7,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image
 
+from dqn_project.agent import select_action
 from dqn_project.environment import make_env
+from dqn_project.learner import DQNLearner
 
 
 def collect_sample(
@@ -17,9 +20,38 @@ def collect_sample(
     steps: int,
     seed: int,
     output: Path,
+    checkpoint: Path | None = None,
+    epsilon: float = 0.0,
+    device: str = "auto",
 ) -> tuple[Path, Path, Path]:
     if steps <= 0:
         raise ValueError("steps must be positive")
+    if not 0 <= epsilon <= 1:
+        raise ValueError("epsilon must be in [0, 1]")
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    rng = np.random.default_rng(seed)
+    network = None
+    checkpoint_metadata: dict[str, object] = {}
+    if checkpoint is not None:
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+        learner = DQNLearner(
+            action_count=int(payload["action_count"]),
+            input_channels=int(payload.get("input_channels", 4)),
+            gamma=float(payload.get("gamma", 0.99)),
+            device=device,
+            optimizer=str(payload.get("optimizer_name", "rmsprop")),
+            optimizer_epsilon=float(payload.get("optimizer_epsilon", 0.01)),
+            gradient_clip_mode=str(payload.get("gradient_clip_mode", "global")),
+            initializer=str(payload.get("initializer", "pytorch")),
+            initialize_target_from_online=bool(
+                payload.get("initialize_target_from_online", True)
+            ),
+        )
+        checkpoint_metadata = learner.load(checkpoint, load_optimizer=False)
+        learner.online.eval()
+        network = learner.online
+
     env = make_env(env_id, pipeline="upstream", clip_rewards=True)
     env.action_space.seed(seed)
     states: list[np.ndarray] = []
@@ -34,7 +66,12 @@ def collect_sample(
     try:
         state, _ = env.reset(seed=seed)
         for _ in range(steps):
-            action = int(env.action_space.sample())
+            if network is None:
+                action = int(env.action_space.sample())
+            else:
+                action = select_action(
+                    network, state, env.action_space.n, epsilon, rng, device
+                )
             successor, reward, terminated, truncated, info = env.step(action)
             states.append(state.copy())
             next_states.append(successor.copy())
@@ -69,7 +106,15 @@ def collect_sample(
             {
                 "environment_id": env_id,
                 "pipeline": "upstream Atari preprocessing port",
-                "policy": "uniform random actions",
+                "policy": (
+                    "uniform random actions"
+                    if checkpoint is None
+                    else "checkpoint epsilon-greedy"
+                ),
+                "epsilon": epsilon if checkpoint is not None else 1.0,
+                "checkpoint_path": str(checkpoint) if checkpoint is not None else None,
+                "checkpoint_metadata": checkpoint_metadata,
+                "device": device,
                 "seed": seed,
                 "transitions": steps,
                 "state_shape": [4, 84, 84],
@@ -97,8 +142,28 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=256)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output", type=Path, default=Path("data/breakout_sample.npz"))
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Optional DQN checkpoint; omit to collect uniform-random actions",
+    )
+    parser.add_argument(
+        "--epsilon",
+        type=float,
+        default=0.0,
+        help="Exploration rate when collecting from a checkpoint (default: greedy)",
+    )
+    parser.add_argument("--device", default="auto", help="auto, cuda, or cpu")
     args = parser.parse_args()
-    paths = collect_sample(args.env, args.steps, args.seed, args.output)
+    paths = collect_sample(
+        args.env,
+        args.steps,
+        args.seed,
+        args.output,
+        checkpoint=args.checkpoint,
+        epsilon=args.epsilon,
+        device=args.device,
+    )
     for path in paths:
         print(path)
 
