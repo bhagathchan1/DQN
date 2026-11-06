@@ -185,16 +185,16 @@ the target receives no gradients and is copied on cumulative optimizer updates.
 | Match cap | 120 seconds of simulation time; environment may terminate earlier |
 | Replay | Uniform, capacity 20,000 machine transitions; single-frame storage |
 | Minimum replay / batch | 256 sampleable transitions / batch 32 |
-| Post-game learning | 128 optimizer updates per eligible match; configurable |
+| Post-game learning | 450 optimizer updates per eligible match (about one per four decisions of a full game, the Nature pace); configurable up to 2,048 |
 | Discount | 0.99 |
 | Optimizer / loss | Existing Nature RMSProp, learning rate 0.00025 / Huber |
 | Target copy | Every 1,000 cumulative optimizer updates, including across games |
-| Exploration | 1.0 to 0.05 over 20,000 committed machine decisions |
+| Exploration | 1.0 to 0.05 over 10,000 committed machine decisions (about six full games) |
 | Initialization | Random by default; compatible pretrained model only when explicitly selected |
 
 Freeze epsilon for each match using the committed-decision counter at its start;
 advance that counter only when valid match data is committed. Replay sampling is
-uniform over all retained eligible matches, not just the newest match. The 128
+uniform over all retained eligible matches, not just the newest match. The 450
 updates are a bounded demo budget, not a promise of visible improvement after each
 game. These settings differ from the existing full-budget paper training preset.
 
@@ -207,7 +207,7 @@ One application presents the following connected panels:
 | Ready | Start / Play again, model version, from-scratch/imported origin, controls, match cap and training budget |
 | Playing | Live two-paddle Pong, human/machine score or return, timer, frozen model version and epsilon |
 | Result | Winner/draw where defined, match validity, previous-game deltas, and automatic-learning status |
-| Learning | Updates completed/128, live batch loss/TD-error/mean-Q charts, replay size, target-copy events and elapsed time |
+| Learning | Updates completed/450, live batch loss/TD-error/mean-Q charts, replay size, target-copy events and elapsed time |
 | Training summary | Input/output model versions, actual update count, checkpoint, fixed-probe before/after diagnostics |
 | History | Match outcomes, model lineage, return/score trends and expandable match/training details |
 

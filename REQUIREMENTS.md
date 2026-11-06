@@ -15,7 +15,7 @@ This file defines behavior and acceptance, not package installation dependencies
 | Game boundary | Environment termination or 120 seconds simulation time; a point is not a game |
 | Main loop | Play -> result/compare -> automatic learning -> summary -> Play again |
 | Training | Vanilla DQN, machine transitions, cumulative uniform replay, updates after game only |
-| Learning budget | 128 updates, batch 32, minimum 256 sampleable transitions |
+| Learning budget | 450 updates, batch 32, minimum 256 sampleable transitions |
 | State retained | Online/target weights, optimizer, replay, RNG and schedules across games |
 | UI | Local FastAPI + React/TypeScript/Vite application |
 | Initial policy | From scratch, or explicit compatible model import with origin displayed |
@@ -43,8 +43,8 @@ Further changes name the affected requirement IDs and revise acceptance criteria
 | LEARN-02 | Use the existing 4x84x84 CNN, vanilla DQN Bellman target, Huber loss, uniform replay and frozen target network. | Terminal/nonterminal target tests and a finite weight-changing update pass. |
 | LEARN-03 | Train only from machine actions/rewards; human controls are opponent context. | A unit/integration test proves human action indices are not substituted as the machine's training actions. |
 | LEARN-04 | Keep learner/target/optimizer, replay, RNG and cumulative schedules across games. | Game 2 starts from Game 1's committed learner state rather than freshly initialized networks or optimizer. |
-| LEARN-05 | Use proposed defaults: replay 20,000, minimum 256 sampleable entries, batch 32, 128 updates, gamma 0.99, Nature RMSProp lr 0.00025. | Actual settings and update counts are saved and shown; overrides are validated and identify a new comparison protocol. |
-| LEARN-06 | Copy targets every 1,000 cumulative optimizer updates; use match-frozen epsilon from a 1.0-to-0.05, 20,000-committed-decision schedule. | Counters cross game boundaries without reset; target copies and epsilon values match the configured schedule. |
+| LEARN-05 | Use proposed defaults: replay 20,000, minimum 256 sampleable entries, batch 32, 450 updates, gamma 0.99, Nature RMSProp lr 0.00025. | Actual settings and update counts are saved and shown; overrides are validated and identify a new comparison protocol. |
+| LEARN-06 | Copy targets every 1,000 cumulative optimizer updates; use match-frozen epsilon from a 1.0-to-0.05, 10,000-committed-decision schedule. | Counters cross game boundaries without reset; target copies and epsilon values match the configured schedule. |
 | LEARN-07 | If replay is insufficient, show progress toward 256 entries and perform zero updates. | No false trained status/model version is produced; Play again stays available. |
 | LEARN-08 | Promote candidate weights/optimizer/target state only after a successful learning phase. | Failure/cancel leaves active model intact; explicit retry starts from the correct pre-phase state. |
 | VIEW-01 | Show live learning progress, loss, absolute TD error, mean Q, replay use, elapsed time and target-copy events. | Charts come from persisted real optimizer events, including a no-update empty state. |

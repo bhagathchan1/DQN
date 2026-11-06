@@ -30,9 +30,9 @@ from .learner import DQNLearner
 
 DEFAULT_CONFIG = {
     'match_seconds': 120.0, 'replay_capacity': 20000, 'min_replay': 256,
-    'batch_size': 32, 'updates_per_match': 128, 'gamma': 0.99,
+    'batch_size': 32, 'updates_per_match': 450, 'gamma': 0.99,
     'learning_rate': 0.00025, 'target_sync': 1000,
-    'epsilon_start': 1.0, 'epsilon_end': 0.05, 'epsilon_decisions': 20000,
+    'epsilon_start': 1.0, 'epsilon_end': 0.05, 'epsilon_decisions': 10000,
     'seed': 7, 'device': 'cpu',
 }
 

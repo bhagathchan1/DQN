@@ -102,7 +102,9 @@ individual game is not guaranteed.
 - Two-player Atari Pong adapter using PettingZoo's parallel environment.
 - Existing CNN and vanilla DQN learner, uniform replay and a separate target network.
 - Replay capacity 20,000 machine transitions; minimum 256 sampleable entries;
-  batch size 32; 128 optimizer updates after each eligible match.
+  batch size 32; 450 optimizer updates after each eligible match (about one per
+  four decisions of a full game); exploration falls from 1.0 to 0.05 over 10,000
+  committed decisions, about six full games.
 - Preserve replay, optimizer/target state and schedules across games; save a
   versioned model after successful learning and use it in the next match.
 - Keep the active model intact if learning fails/cancels; exclude aborted/invalid
