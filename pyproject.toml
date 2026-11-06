@@ -20,6 +20,7 @@ env = ["gymnasium[atari]>=1.0", "ale-py>=0.10", "opencv-python-headless>=4.8", "
 analysis = ["matplotlib>=3.8", "pandas>=2.1"]
 test = ["pytest>=8"]
 ui = ["pygame-ce>=2.5"]
+lab = ["fastapi>=0.115", "uvicorn[standard]>=0.30", "pettingzoo>=1.24", "multi-agent-ale-py>=0.1.11", "httpx>=0.27"]
 all = [
   "gymnasium[atari]>=1.0",
   "ale-py>=0.10",
@@ -38,6 +39,7 @@ dqn-evaluate = "dqn_project.evaluate:main"
 dqn-plot = "dqn_project.plot_results:main"
 dqn-pipeline = "dqn_project.pipeline:main"
 dqn-play = "dqn_project.play:main"
+dqn-lab = "dqn_project.pong_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

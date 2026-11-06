@@ -16,3 +16,5 @@ results/metrics/smoke_*.json
 results/metrics/breakout_cpu_benchmark.csv
 tmp/
 experiments/
+web/node_modules/
+web/dist/

@@ -1,4 +1,150 @@
-# Human-level control through deep reinforcement learning
+# Pong Learning Lab
+
+**Status: implemented against the v0.2 design and smoke-tested on real two-player
+Atari Pong under WSL2. The requirements' formal approval is not yet recorded.**
+
+A live Pong demo where you and a Deep Q-Network control opposing paddles.
+After every valid completed game, the machine learns from accumulated gameplay
+experience. The UI shows training progress, then lets you play again and compare
+the new result with the previous game.
+
+## Review documents
+
+| Document | What to review |
+| --- | --- |
+| [Architecture](ARCHITECTURE.md) | Two-player game, after-game learning, visual panels, model/replay lifecycle and recovery |
+| [Requirements](REQUIREMENTS.md) | Proposed settings, acceptance checks and scope to freeze |
+| This README | User journey, what exists and what the new demo adds |
+
+This revision replaces the earlier multi-game, separate-round proposal. To launch
+the lab, see [Run the lab on Windows (WSL2)](#run-the-lab-on-windows-wsl2); on
+Linux, install `pip install -e ".[env,lab,ui]"` and run `dqn-lab`.
+
+## The demo loop
+
+```mermaid
+flowchart LR
+    P[Play Pong: user vs DQN v0] --> R[Show result and previous-game comparison]
+    R --> L[Learn after game: replay, minibatches, DQN updates]
+    L --> S[Show training summary and save DQN v1]
+    S --> N[Play again with DQN v1]
+    N --> R
+```
+
+1. **Play:** choose a new session or compatible saved model. You control one
+   paddle; the machine controls the other in the same live match.
+2. **Result:** see the outcome, score/return, model version and comparison with
+   the previous valid game. The first game establishes the initial record.
+3. **Learn:** automatically sample the machine's experience from session replay
+   and update its DQN. Show progress, loss, TD error, Q-values and replay size.
+4. **Inspect:** see actual updates, before/after diagnostics and the saved model
+   version. If there is too little experience, show that honestly and retain the model.
+5. **Play again:** continue with the updated learner and retained experience.
+
+A game ends on the environment's termination or a proposed 120-second simulation
+cap. A point/rally does not trigger training. Weights stay fixed during play;
+updates happen afterward. No annotated dataset is needed: the machine learns from
+its own actions and rewards while facing the user.
+
+## Run the lab on Windows (WSL2)
+
+Two-player Atari Pong needs `multi-agent-ale-py`, which has no Windows wheel. A
+locally compiled Windows DLL (`scripts/build_windows_atari.py`) is blocked when
+Smart App Control is on, so the lab server runs inside WSL2 instead. The browser
+UI stays on Windows.
+
+1. One-time, in an administrator PowerShell, then reboot and create the Ubuntu user:
+
+   ```powershell
+   wsl --install
+   ```
+
+2. One-time setup, from PowerShell in the `DQN` folder (asks for your Ubuntu password):
+
+   ```powershell
+   wsl --cd "$PWD" bash scripts/setup_wsl_lab.sh
+   ```
+
+3. Start the server and open <http://localhost:8765> in your Windows browser:
+
+   ```powershell
+   wsl --cd "$PWD" bash scripts/run_wsl_lab.sh
+   ```
+
+The prebuilt UI in `web/dist` is served by the backend. After changing `web/src`,
+rebuild it on Windows with `cd web; npm install; npm run build`. Sessions are saved
+under `experiments/pong_sessions/`. With the server running, an end-to-end check of
+three games, learning and restore is:
+
+```powershell
+wsl --cd "$PWD" ~/.venvs/dqn-lab/bin/python scripts/smoke_pong_lab.py
+```
+
+## What the UI should show
+
+| Area | Visible information |
+| --- | --- |
+| Pong canvas | Both paddles, human controls, scoring, timer, active model version and exploration |
+| Learning panel | Updates completed, live loss/TD-error/Q charts, replay count, target copies and elapsed time |
+| Model summary | Input/output version, checkpoint and fixed-sample before/after diagnostics |
+| Last-game comparison | Human/machine score and return, outcome, duration, model version and deltas |
+| Session history | Every match and training phase, with observed performance trends |
+
+Game rewards can include serve penalties, so verified goal counts and learning
+return are kept distinct. If only returns are available, label the result a return
+leader/draw and mark goal/penalty counts unavailable. Better results in a later match are observed performance; the human
+opponent and exploration also change. Training is real, but improvement after each
+individual game is not guaranteed.
+
+## Implementation and defaults
+
+- Local FastAPI backend plus React/TypeScript/Vite browser UI.
+- Two-player Atari Pong adapter using PettingZoo's parallel environment.
+- Existing CNN and vanilla DQN learner, uniform replay and a separate target network.
+- Replay capacity 20,000 machine transitions; minimum 256 sampleable entries;
+  batch size 32; 128 optimizer updates after each eligible match.
+- Preserve replay, optimizer/target state and schedules across games; save a
+  versioned model after successful learning and use it in the next match.
+- Keep the active model intact if learning fails/cancels; exclude aborted/invalid
+  match experience; restore committed between-game state after restart.
+
+These defaults are for the interactive demo and can change during review. The
+existing single-agent Pong checkpoint is not automatically compatible with the
+new two-player action/observation contract.
+
+## Current status
+
+| Capability | Status |
+| --- | --- |
+| Atari preprocessing, CNN, replay, DQN learner and checkpoints | Existing Python foundation |
+| CLI training/evaluation, sample export, Colab notebook | Existing separate workflows |
+| Pygame arena | Existing separate single-agent rounds; no after-game learning |
+| Simultaneous user-versus-DQN Pong (`pong_environment.py`) | Implemented; real two-player Atari verified in WSL2 |
+| Automatic after-game learning and model-version promotion (`pong_session.py`) | Implemented; unit tested and smoke tested |
+| Live learning charts and previous-game comparison (`pong_server.py`, `web/`) | Implemented; UI renders a restored session |
+| Between-game session/replay recovery | Implemented; restore verified by the smoke test |
+
+Verification so far: 47 tests pass on Windows and in WSL2.
+`scripts/probe_two_player_pong.py` confirms both paddles act, both sides score and
+each decision is exactly four emulator frames. `scripts/smoke_pong_lab.py` plays
+three scripted games over HTTP/WebSocket (v0 -> v1 -> v2 -> v3) and restores v3
+with all six updates. Not yet done: human keyboard play-through, the
+REQUIREMENTS acceptance scenarios with the full defaults, and any claim of skill
+improvement. Initial play from a random model will be weak; a strong policy
+requires enough experience and updates.
+
+## Approval scope
+
+Approval of the requirements would freeze the Pong-only **play -> learn -> play again -> compare** demo, the proposed
+defaults and the acceptance checks. The earlier Double DQN, multi-game dashboard,
+external-data import and paper-benchmark dashboard are deferred. The new match
+protocol is a learning demonstration based on DQN, rather than a direct numerical
+reproduction of the paper's single-agent benchmark.
+
+## Existing implementation and commands
+
+The sections below describe the current repository and remain available while
+the proposed design is under review. Start/run commands here use existing code.
 
 ### A reproduction of the Nature 2015 Deep Q-Network (DQN) paper
 
