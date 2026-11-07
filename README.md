@@ -17,7 +17,7 @@ the new result with the previous game.
 | This README | User journey, what exists and what the new demo adds |
 
 This revision replaces the earlier multi-game, separate-round proposal. To launch
-the lab, see [Run the lab on Windows (WSL2)](#run-the-lab-on-windows-wsl2); on
+the lab, see [Run the Pong Learning Lab UI](#run-the-pong-learning-lab-ui); on
 Linux, install `pip install -e ".[env,lab,ui]"` and run `dqn-lab`.
 
 ## The demo loop
@@ -46,39 +46,113 @@ cap. A point/rally does not trigger training. Weights stay fixed during play;
 updates happen afterward. No annotated dataset is needed: the machine learns from
 its own actions and rewards while facing the user.
 
-## Run the lab on Windows (WSL2)
+## Run the Pong Learning Lab UI
+
+**Quick start** (after the one-time setup below). Open PowerShell in the `DQN`
+folder and run:
+
+```powershell
+wsl bash scripts/run_wsl_lab.sh
+```
+
+When it prints `Pong Learning Lab: open http://localhost:8765`, open
+<http://localhost:8765> in your normal Windows browser. Keep that PowerShell window
+open while you play; press **Ctrl+C** in it to stop the server.
+
+### Why WSL2 on Windows
 
 Two-player Atari Pong needs `multi-agent-ale-py`, which has no Windows wheel. A
 locally compiled Windows DLL (`scripts/build_windows_atari.py`) is blocked when
-Smart App Control is on, so the lab server runs inside WSL2 instead. The browser
-UI stays on Windows.
+Smart App Control is on, so the lab server runs inside WSL2 (Linux). The browser
+stays on Windows; WSL2 forwards `localhost:8765` automatically.
 
-1. One-time, in an administrator PowerShell, then reboot and create the Ubuntu user:
+### One-time setup
+
+1. **Install WSL2.** In an administrator PowerShell run the command below, reboot,
+   then open **Ubuntu** from the Start menu once to create your Linux username and
+   password.
 
    ```powershell
    wsl --install
    ```
 
-2. One-time setup, from PowerShell in the `DQN` folder (asks for your Ubuntu password):
+2. **Install the lab environment.** From PowerShell in the `DQN` folder:
 
    ```powershell
-   wsl --cd "$PWD" bash scripts/setup_wsl_lab.sh
+   wsl bash scripts/setup_wsl_lab.sh
    ```
 
-3. Start the server and open <http://localhost:8765> in your Windows browser:
+   This creates a Linux virtual environment at `~/.venvs/dqn-lab` (your Windows
+   `.venv` is untouched), installs CPU PyTorch and the lab dependencies, builds the
+   two-player Atari runtime and ends with `multi-agent-ale-py loaded; pong_v3 import OK`.
+   If system packages are missing it runs `sudo apt-get` and asks for your Ubuntu
+   password.
+
+3. **Build the browser UI** (needs [Node.js](https://nodejs.org/) on Windows; only
+   again after changing `web/src`):
 
    ```powershell
-   wsl --cd "$PWD" bash scripts/run_wsl_lab.sh
+   cd web; npm install; npm run build; cd ..
    ```
 
-The prebuilt UI in `web/dist` is served by the backend. After changing `web/src`,
-rebuild it on Windows with `cd web; npm install; npm run build`. Sessions are saved
-under `experiments/pong_sessions/`. With the server running, an end-to-end check of
-three games, learning and restore is:
+   The server serves the built files from `web/dist`.
+
+### Playing
+
+1. Press **Create session**, or use **New / restore session** in the sidebar to
+   resume a saved one. The defaults are a 120-second game and 450 learning updates
+   after each game.
+2. Press **Start match**. You control the **left** paddle; the DQN controls the right one.
+
+   | Key | Action |
+   | --- | --- |
+   | ↑ or W | Move up |
+   | ↓ or S | Move down |
+   | Space | Serve |
+   | Esc | Abort the game (no learning from it) |
+
+   Keep the browser tab focused: switching away releases your keys and aborts the game.
+3. After the game the machine learns automatically (about 17 s on CPU), then shows
+   the learning charts, the new model version and the comparison with your last game.
+   Press **Play again** to face the updated model.
+
+Expect weak play at first: the machine explores randomly until about six full games
+in, and needs dozens of games before it clearly tracks the ball. Sessions are saved
+under `experiments/pong_sessions/` and can be resumed after a restart.
+
+### On Linux or macOS
+
+No WSL is needed. From the `DQN` folder:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[env,lab,ui]" websockets
+dqn-lab
+```
+
+Then build the UI as in step 3 (`cd web && npm install && npm run build`) and open
+<http://localhost:8765>.
+
+### Check that everything works
+
+With the server running, this plays three short scripted games over the real API,
+checks that the model version advances after each one and that the session restores:
 
 ```powershell
-wsl --cd "$PWD" ~/.venvs/dqn-lab/bin/python scripts/smoke_pong_lab.py
+wsl ~/.venvs/dqn-lab/bin/python scripts/smoke_pong_lab.py
 ```
+
+Run the test suite inside WSL with `wsl ~/.venvs/dqn-lab/bin/python -m pytest -q`.
+
+### Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| `Build the UI first` in the browser | Run step 3, then reload the page. |
+| `No lab environment at ~/.venvs/dqn-lab` | Run the one-time setup, step 2. |
+| Port 8765 already in use | A server is already running; use it, or stop it with Ctrl+C. To use another port: `wsl bash scripts/run_wsl_lab.sh --port 8800`. |
+| `apt-get`: Release file `is not valid yet` | The Windows clock or timezone is wrong. Fix it in Windows Settings › Time & language, then run `wsl --shutdown` and retry. |
+| Page does not load from Windows | Check the server window shows no error, then try <http://127.0.0.1:8765>. |
 
 ## What the UI should show
 
