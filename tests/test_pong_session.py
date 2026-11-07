@@ -241,6 +241,12 @@ class PongSessionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_config({'updates_per_match': 0})
 
+    def test_network_setting_defaults_and_validates(self):
+        self.assertEqual(validate_config()['network'], 'nature')
+        self.assertEqual(validate_config({'network': 'dueling'})['network'], 'dueling')
+        with self.assertRaises(ValueError):
+            validate_config({'network': 'resnet'})
+
 
 if __name__ == '__main__':
     unittest.main()

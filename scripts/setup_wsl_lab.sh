@@ -36,8 +36,22 @@ fi
 PY="$VENV/bin/python"
 "$PY" -m pip install --upgrade pip setuptools wheel
 
-# CPU-only PyTorch keeps the download small; the demo trains 128 updates per game.
-"$PY" -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+# With an NVIDIA GPU visible in WSL, install the CUDA 12.6 build (needs a Windows
+# NVIDIA driver 560 or newer); the lab then trains on the GPU automatically.
+# Otherwise install the smaller CPU-only build. Override with DQN_LAB_TORCH_INDEX.
+if [ -z "${DQN_LAB_TORCH_INDEX:-}" ]; then
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    DQN_LAB_TORCH_INDEX=https://download.pytorch.org/whl/cu126
+  else
+    DQN_LAB_TORCH_INDEX=https://download.pytorch.org/whl/cpu
+  fi
+fi
+echo "PyTorch index: $DQN_LAB_TORCH_INDEX"
+# WSL's /tmp is a small RAM disk; the CUDA wheels need several GB to unpack.
+PIP_TMP="$HOME/.cache/dqn-lab-piptmp"
+mkdir -p "$PIP_TMP"
+TMPDIR="$PIP_TMP" "$PY" -m pip install torch --index-url "$DQN_LAB_TORCH_INDEX"
+rm -rf "$PIP_TMP"
 "$PY" -m pip install -e "$PROJECT[env,lab,test,ui,analysis]" websockets
 
 echo

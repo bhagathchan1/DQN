@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
     'batch_size': 32, 'updates_per_match': 450, 'gamma': 0.99,
     'learning_rate': 0.00025, 'target_sync': 1000,
     'epsilon_start': 1.0, 'epsilon_end': 0.05, 'epsilon_decisions': 10000,
-    'seed': 7, 'device': 'cpu',
+    'seed': 7, 'device': 'auto', 'network': 'nature',
 }
 
 
@@ -120,6 +120,8 @@ def validate_config(config: dict | None = None) -> dict:
         raise ValueError('Gamma and epsilon settings must be within [0,1]')
     if isinstance(result['seed'], bool) or not isinstance(result['seed'], int) or not 0 <= result['seed'] < 2**31:
         raise ValueError('seed must be an integer in [0,2**31)')
+    if result['network'] not in {'nature', 'dueling'}:
+        raise ValueError('network must be nature or dueling')
     if result['device'] not in {'cpu', 'cuda', 'auto'}:
         raise ValueError('device must be cpu, cuda or auto')
     requested = result['device']
@@ -143,7 +145,13 @@ class PongSession:
         saved = json.loads(self.manifest_path.read_text(encoding='utf-8')) if self.manifest_path.is_file() else None
         if saved and config:
             raise ValueError('Restore uses its saved configuration; create a new session to change settings.')
-        self.config = validate_config(saved['config'] if saved else config)
+        if saved:
+            # The device is where computation runs, not part of the learning protocol:
+            # a restored session uses the GPU when one is available now.
+            restored = {**saved['config'], 'device': 'auto'}
+            self.config = validate_config(restored)
+        else:
+            self.config = validate_config(config)
         self._learner_factory = learner_factory
         if env_factory is None:
             from .pong_environment import PongEnvironment
@@ -212,13 +220,17 @@ class PongSession:
             return self._learner_factory(self.env.action_count)
         return DQNLearner(self.env.action_count, gamma=self.config['gamma'],
                           learning_rate=self.config['learning_rate'], device=self.config['device'],
-                          optimizer='nature_rmsprop', gradient_clip=None)
+                          optimizer='nature_rmsprop', gradient_clip=None,
+                          architecture=self.config['network'])
 
     def _import(self, path):
         payload = torch.load(Path(path), map_location='cpu', weights_only=False)
         metadata = payload.get('metadata', {})
         if metadata.get('environment_spec') != self.spec or payload.get('action_count') != self.env.action_count:
             raise ValueError('Checkpoint is incompatible: two-player environment, side, action map and preprocessing must match.')
+        if payload.get('architecture', 'nature') != self.config['network']:
+            raise ValueError(f"Checkpoint uses the {payload.get('architecture', 'nature')} network; "
+                             f"this session uses {self.config['network']}.")
         if payload.get('optimizer_name') != 'nature_rmsprop':
             raise ValueError('Only compatible Nature RMSProp Pong session checkpoints can be imported.')
         source = metadata.get('config', {})

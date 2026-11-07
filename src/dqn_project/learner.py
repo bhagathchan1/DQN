@@ -37,6 +37,7 @@ class DQNLearner:
         gradient_clip_mode: str = "global",
         initializer: str = "pytorch",
         initialize_target_from_online: bool = True,
+        architecture: str = "nature",
     ) -> None:
         if not 0 <= gamma <= 1:
             raise ValueError("gamma must be in [0, 1]")
@@ -52,8 +53,11 @@ class DQNLearner:
         self.gradient_clip_mode = gradient_clip_mode
         self.initializer = initializer
         self.initialize_target_from_online = initialize_target_from_online
-        self.online = DQN(action_count, input_channels, initializer=initializer).to(self.device)
-        self.target = DQN(action_count, input_channels, initializer=initializer).to(self.device)
+        self.architecture = architecture
+        self.online = DQN(action_count, input_channels, initializer=initializer,
+                          architecture=architecture).to(self.device)
+        self.target = DQN(action_count, input_channels, initializer=initializer,
+                          architecture=architecture).to(self.device)
         if optimizer == "nature_rmsprop":
             self.optimizer = NatureRMSprop(self.online.parameters(), lr=learning_rate, eps=optimizer_epsilon)
         elif optimizer == "adam":
@@ -138,6 +142,7 @@ class DQNLearner:
                 "gradient_clip_mode": self.gradient_clip_mode,
                 "initializer": self.initializer,
                 "initialize_target_from_online": self.initialize_target_from_online,
+                "architecture": self.architecture,
                 "metadata": metadata or {},
             },
             path,
@@ -145,6 +150,11 @@ class DQNLearner:
 
     def load(self, path: str | Path, load_optimizer: bool = True) -> dict[str, Any]:
         payload = torch.load(path, map_location=self.device, weights_only=False)
+        saved = payload.get("architecture", "nature")
+        if saved != self.architecture:
+            raise ValueError(
+                f"checkpoint uses the {saved!r} network but this learner is {self.architecture!r}"
+            )
         self.online.load_state_dict(payload["online"])
         self.target.load_state_dict(payload["target"])
         if load_optimizer and "optimizer" in payload:

@@ -83,10 +83,21 @@ stays on Windows; WSL2 forwards `localhost:8765` automatically.
    ```
 
    This creates a Linux virtual environment at `~/.venvs/dqn-lab` (your Windows
-   `.venv` is untouched), installs CPU PyTorch and the lab dependencies, builds the
+   `.venv` is untouched), installs PyTorch and the lab dependencies, builds the
    two-player Atari runtime and ends with `multi-agent-ale-py loaded; pong_v3 import OK`.
    If system packages are missing it runs `sudo apt-get` and asks for your Ubuntu
    password.
+
+   **GPU:** when an NVIDIA GPU is visible in WSL (`wsl nvidia-smi` works; Windows
+   driver 560 or newer), the script installs the CUDA 12.6 build of PyTorch and the
+   lab trains on the GPU automatically. To switch an existing CPU install to CUDA:
+
+   ```powershell
+   wsl bash -c 'mkdir -p ~/.cache/piptmp && TMPDIR=~/.cache/piptmp ~/.venvs/dqn-lab/bin/python -m pip install "torch==2.14.1+cu126" --index-url https://download.pytorch.org/whl/cu126 && rm -rf ~/.cache/piptmp'
+   ```
+
+   (`TMPDIR` matters: WSL's `/tmp` is a small RAM disk and the CUDA wheels need
+   several GB to unpack.)
 
 3. **Build the browser UI** (needs [Node.js](https://nodejs.org/) on Windows; only
    again after changing `web/src`):
@@ -99,9 +110,11 @@ stays on Windows; WSL2 forwards `localhost:8765` automatically.
 
 ### Playing
 
-1. Press **Create session**, or use **New / restore session** in the sidebar to
-   resume a saved one. The defaults are a 120-second game and 450 learning updates
-   after each game.
+1. Press **Create session**. The defaults are a 120-second game, 450 learning
+   updates after each game and the **Nature DQN** network. The **Network** menu
+   also offers **Dueling DQN**: the same convolutional layers, with the head split
+   into a state value V(s) and per-action advantages A(s, a), combined as
+   Q = V + A − mean(A). A session keeps the network it was created with.
 2. Press **Start match**. You control the **left** paddle; the DQN controls the right one.
 
    | Key | Action |
@@ -112,13 +125,23 @@ stays on Windows; WSL2 forwards `localhost:8765` automatically.
    | Esc | Abort the game (no learning from it) |
 
    Keep the browser tab focused: switching away releases your keys and aborts the game.
-3. After the game the machine learns automatically (about 17 s on CPU), then shows
+3. After the game the machine learns automatically (450 updates: about 6 s for
+   Nature and 7 s for Dueling on an RTX 3050 laptop GPU; about 28–40 s on CPU), then shows
    the learning charts, the new model version and the comparison with your last game.
    Press **Play again** to face the updated model.
 
 Expect weak play at first: the machine explores randomly until about six full games
-in, and needs dozens of games before it clearly tracks the ball. Sessions are saved
-under `experiments/pong_sessions/` and can be resumed after a restart.
+in, and needs dozens of games before it clearly tracks the ball. The machine decides
+15 times per second (every four emulator frames, as in the DQN paper); a GPU speeds
+up learning between games, not reactions during play.
+
+**Resuming a session.** After every completed game and learning phase the model,
+optimizer, replay buffer and counters are saved under `experiments/pong_sessions/`.
+To continue later, open **New / restore session**, pick the session from
+**Restore a saved session…** (listed newest first with its network, model version
+and number of games) and press **Restore**. A game that was interrupted is not
+saved; the session resumes from the last completed game. A restored session uses
+the GPU when one is available.
 
 ### On Linux or macOS
 

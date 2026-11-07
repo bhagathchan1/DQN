@@ -18,6 +18,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
+DECISION_PERIOD = 4 / 60  # four emulator frames at 60 frames/s = 15 decisions/s
+
+
 def _worker(root, commands, updates, replies, cancel):
     # Import torch in the child; neither inference nor learning blocks FastAPI.
     import torch
@@ -66,8 +69,12 @@ def _worker(root, commands, updates, replies, cancel):
                 session.learn(cancelled=cancel.is_set, on_update=lambda *args, **kwargs: publish())
                 publish()
                 last_tick = time.monotonic()
+            # While playing, wake exactly at the next decision instead of up to 10 ms late.
+            wait = 0.01
+            if session is not None and session.status == 'playing':
+                wait = min(wait, max(0.0, last_tick + DECISION_PERIOD - time.monotonic()))
             try:
-                command = commands.get(timeout=0.01)
+                command = commands.get(timeout=wait) if wait > 0 else commands.get_nowait()
             except queue.Empty:
                 command = None
             if command:
@@ -122,9 +129,9 @@ def _worker(root, commands, updates, replies, cancel):
                     session.abort_match('input_timeout')
                     publish()
                     continue
-                if now - last_tick >= 1 / 15:
+                if now - last_tick >= DECISION_PERIOD:
                     lag = now - last_tick
-                    if lag > (1 / 15) / 0.90:
+                    if lag > DECISION_PERIOD / 0.90:
                         slow_since = slow_since or now
                     else:
                         slow_since = None
@@ -132,7 +139,11 @@ def _worker(root, commands, updates, replies, cancel):
                         session.abort_match('invalid_throughput')
                         publish()
                         continue
-                    last_tick = now
+                    # Fixed-step clock: advance by one period so small delays do not
+                    # accumulate; resynchronise if more than one period behind.
+                    last_tick += DECISION_PERIOD
+                    if now - last_tick > DECISION_PERIOD:
+                        last_tick = now
                     session.tick()
                     if session.status == 'learning':
                         cancel.clear()
@@ -239,10 +250,13 @@ class PongController:
                 data = json.loads(path.read_text(encoding='utf-8'))
                 result.append({'id': path.parent.name, 'status': data.get('status', 'saved'),
                                'active_version': data.get('active_version', 0),
+                               'network': (data.get('config') or {}).get('network', 'nature'),
+                               'games': len(data.get('history') or []),
                                'updated_at': data.get('updated_at', data.get('created_at'))})
             except (OSError, ValueError):
                 continue
-        return sorted(result, key=lambda row: row['id'], reverse=True)
+        # Newest first, so the session you just played is at the top of the list.
+        return sorted(result, key=lambda row: str(row['updated_at'] or ''), reverse=True)
 
     def checkpoints(self):
         return [{'path': str(p.resolve()), 'label': str(p.relative_to(self.root))}
