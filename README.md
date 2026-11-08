@@ -81,6 +81,9 @@ window, run `dqn-play --checkpoint checkpoints/your_checkpoint.pt --env ALE/Brea
 In the upstream profile, a life-loss boundary counts as a training episode. Colab saves
 an evaluation GIF instead of opening a local desktop window.
 
+See the [step-by-step guide to watching the agent play](guides/watch-agent-play/README.md)
+for checkpoint setup, installation, live display, and Colab GIF instructions.
+
 Evaluate a saved checkpoint or random policy:
 
 ```bash
@@ -105,6 +108,7 @@ python -m unittest discover -s tests -v
 - `notebooks/` — Colab workflow for GPU training, evaluation, and media export.
 - `results/` — recorded experiment metrics, plots, and report artifacts.
 - `docs/` — paper comparison, experiment protocol, architecture notes, and data pipeline.
+- `guides/` — detailed setup steps for watching a trained agent play.
 - `assets/upstream_dqn/` — attributed visual references from the linked implementation.
 
 ## Citation
