@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-env = ["gymnasium[atari]>=1.0", "ale-py>=0.10", "opencv-python-headless>=4.8", "imageio>=2.31", "tensorboard>=2.14"]
+env = ["gymnasium[atari]>=1.0", "ale-py>=0.10", "opencv-python-headless>=4.8", "imageio>=2.31", "tensorboard>=2.14", "pygame>=2.1"]
 analysis = ["matplotlib>=3.8", "pandas>=2.1"]
 test = ["pytest>=8"]
 all = [
@@ -25,6 +25,7 @@ all = [
   "opencv-python-headless>=4.8",
   "imageio>=2.31",
   "tensorboard>=2.14",
+  "pygame>=2.1",
   "matplotlib>=3.8",
   "pandas>=2.1",
   "pytest>=8",
@@ -33,6 +34,7 @@ all = [
 [project.scripts]
 dqn-train = "dqn_project.train:main"
 dqn-evaluate = "dqn_project.evaluate:main"
+dqn-play = "dqn_project.play:main"
 dqn-plot = "dqn_project.plot_results:main"
 
 [tool.setuptools.packages.find]

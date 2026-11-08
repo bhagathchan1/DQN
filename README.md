@@ -75,6 +75,12 @@ dqn-train --config configs/upstream_breakout.yaml
 
 The upstream-compatible configuration uses a 10-million selected-action budget. It matches the reference implementation's training behavior and Atari data pipeline as closely as this PyTorch/Gymnasium port allows; random streams, framework behavior, and scores can differ. Periodic checkpoints save model and optimizer state but omit replay and environment state, so an interrupted run cannot be resumed exactly.
 
+Training can also stop after a configured number of completed episodes by setting
+`training.max_episodes` in the YAML file. To watch a checkpoint play in a local game
+window, run `dqn-play --checkpoint checkpoints/your_checkpoint.pt --env ALE/Breakout-v5`.
+In the upstream profile, a life-loss boundary counts as a training episode. Colab saves
+an evaluation GIF instead of opening a local desktop window.
+
 Evaluate a saved checkpoint or random policy:
 
 ```bash
@@ -94,7 +100,7 @@ python -m unittest discover -s tests -v
 
 ## Repository map
 
-- `src/dqn_project/` — model, learner, Atari preprocessing, replay, training, and evaluation.
+- `src/dqn_project/` — model, learner, Atari preprocessing, replay, training, evaluation, and live play.
 - `configs/` — uniform, prioritized, and upstream-compatible training profiles.
 - `notebooks/` — Colab workflow for GPU training, evaluation, and media export.
 - `results/` — recorded experiment metrics, plots, and report artifacts.

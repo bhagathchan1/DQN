@@ -135,6 +135,10 @@ def train(config_path: str) -> Path:
     learning_starts = int(train_cfg["learning_starts"])
     train_frequency = int(train_cfg["train_frequency"])
     target_update_frequency = int(train_cfg["target_update_frequency"])
+    max_episodes = train_cfg.get("max_episodes")
+    max_episodes = int(max_episodes) if max_episodes is not None else None
+    if max_episodes is not None and max_episodes <= 0:
+        raise ValueError("training.max_episodes must be positive when provided")
     checkpoint_frequency = int(train_cfg["checkpoint_frequency"])
     episode_checkpoint_frequency = int(train_cfg.get("episode_checkpoint_frequency", 0))
     evaluation_interval_episodes = int(train_cfg.get("evaluation_interval_episodes", 0))
@@ -143,7 +147,9 @@ def train(config_path: str) -> Path:
     latest_100_rewards: deque[float] = deque(maxlen=100)
     step = 0
     try:
-        while step < total_steps or (profile == "upstream" and episode_length > 0):
+        while (
+            step < total_steps or (profile == "upstream" and episode_length > 0)
+        ) and (max_episodes is None or episode < max_episodes):
             step += 1
             schedule_step = step - 1
             cadence_step = schedule_step if profile == "upstream" else step
@@ -285,7 +291,10 @@ def train(config_path: str) -> Path:
                                 "Test score", evaluation["selected_reward"], episode
                             )
 
-                if profile == "upstream" and step >= total_steps:
+                if (
+                    (profile == "upstream" and step >= total_steps)
+                    or (max_episodes is not None and episode >= max_episodes)
+                ):
                     break
 
             if checkpoint_frequency > 0 and step % checkpoint_frequency == 0:

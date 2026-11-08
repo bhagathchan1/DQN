@@ -10,3 +10,9 @@ to mounted Drive, and can export a sample of online transitions. The model and
 environment interfaces are ported to PyTorch/Gymnasium, so results will not be
 bit-for-bit identical to the linked TensorFlow/Gym implementation. Periodic checkpoints save model and optimizer state, but omit replay and environment state,
 so they cannot resume an interrupted run exactly. See `docs/upstream_data_pipeline.md`.
+
+The notebook caps training at 10,000 completed episodes or 10 million selected actions,
+whichever comes first. In the upstream profile, a life-loss boundary counts as a
+training episode. The evaluation GIF displays in the notebook after training. On a
+local machine with a desktop display, use `dqn-play --checkpoint <path>` to watch an
+agent play in a live game window.
