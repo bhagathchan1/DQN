@@ -83,6 +83,7 @@ def train(config_path: str) -> Path:
             train_cfg.get("initialize_target_from_online", True)
         ),
         gradient_clip=train_cfg.get('gradient_clip', 10.0),
+        architecture=str(train_cfg.get('network', 'nature')),
     )
     replay_type = replay_cfg["type"]
     common = {
