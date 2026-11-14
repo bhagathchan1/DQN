@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the Pong Learning Lab server inside WSL2.
+# Start the DeepQ Learning Lab server (Pong + Breakout) inside WSL2.
 #
 # From Windows (PowerShell), in the DQN folder:
 #   wsl --cd "$PWD" bash scripts/run_wsl_lab.sh
@@ -21,5 +21,5 @@ if [ ! -f "$PROJECT/web/dist/index.html" ]; then
 fi
 
 cd "$PROJECT"
-echo "Pong Learning Lab: open http://localhost:8765 in your browser (Ctrl+C stops it)."
+echo "DeepQ Learning Lab: open http://localhost:8765 in your browser (Ctrl+C stops it)."
 exec "$VENV/bin/python" -m dqn_project.pong_server "$@"

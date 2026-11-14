@@ -86,6 +86,13 @@ class ArenaRound:
     def frame(self):
         return self.env.env.render()
 
+    def lives(self):
+        """Remaining lives from the emulator, or None if the game does not report them."""
+        try:
+            return int(self.env.env.unwrapped.ale.lives())
+        except Exception:  # noqa: BLE001 - informational only
+            return None
+
     def result(self):
         return dict(timestamp_utc=datetime.now(timezone.utc).isoformat(), game=self.env_id,
                     mode=self.mode, seed=self.seed, score=self.score, decisions=self.steps,

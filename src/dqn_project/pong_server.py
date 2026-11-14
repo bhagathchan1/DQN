@@ -1,4 +1,5 @@
-"""Local Pong Learning Lab server, with one isolated, long-lived session process."""
+"""Local DeepQ Learning Lab server: live Pong against a learning DQN in one isolated,
+long-lived session process, and turn-based Breakout against trained DQNs."""
 from __future__ import annotations
 
 import argparse
@@ -266,6 +267,16 @@ class PongController:
     def pretrained(self):
         return discover_pretrained(self.models_dir)
 
+    def close(self):
+        self.cancel.set()
+        if self.process and self.process.is_alive():
+            self.commands.put({'action': 'shutdown'})
+            self.process.join(timeout=8)
+            if self.process.is_alive():
+                self.process.terminate()
+                self.process.join(timeout=3)
+        self._closed = True
+
 
 PRETRAINED_DIR = Path(__file__).resolve().parents[2] / 'trained_models' / 'pong_two_player'
 # Opponents start from a trained policy, so they should play it, not explore at random.
@@ -301,18 +312,8 @@ def discover_pretrained(directory: Path | None = None):
                        'epsilon': PRETRAINED_EPSILON})
     return models
 
-    def close(self):
-        self.cancel.set()
-        if self.process and self.process.is_alive():
-            self.commands.put({'action': 'shutdown'})
-            self.process.join(timeout=8)
-            if self.process.is_alive():
-                self.process.terminate()
-                self.process.join(timeout=3)
-        self._closed = True
 
-
-def create_app(root=None, controller=None):
+def create_app(root=None, controller=None, breakout=None):
     from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -320,14 +321,18 @@ def create_app(root=None, controller=None):
     globals().update(Request=Request, WebSocket=WebSocket)
     project = Path(__file__).resolve().parents[2]
     owned = controller or PongController(root or project / 'experiments' / 'pong_sessions')
+    from .breakout_arena import BreakoutArena, safe_model_id
+    arena = breakout or BreakoutArena(project / 'experiments' / 'breakout_arena' / 'scores.csv')
 
     @asynccontextmanager
     async def lifespan(app):
         yield
+        await asyncio.to_thread(arena.close)
         await asyncio.to_thread(owned.close)
 
-    app = FastAPI(title='Pong Learning Lab', lifespan=lifespan)
+    app = FastAPI(title='DeepQ Learning Lab', lifespan=lifespan)
     app.state.controller = owned
+    app.state.breakout = arena
 
     def local_origin(origin):
         return not origin or urlparse(origin).hostname in {'127.0.0.1', 'localhost', '::1'}
@@ -405,6 +410,8 @@ def create_app(root=None, controller=None):
 
     @app.post('/api/matches')
     async def start():
+        if arena.playing():
+            raise HTTPException(409, 'A Breakout round is running; finish or stop it before playing Pong.')
         return await command('start')
 
     @app.post('/api/matches/abort')
@@ -476,6 +483,69 @@ def create_app(root=None, controller=None):
             pass
         finally:
             owned.stop_input('disconnected')
+
+    # ----- Breakout: take turns with a trained DQN on the same seed ---------------
+    @app.get('/api/breakout/models')
+    def breakout_models():
+        return [{k: v for k, v in model.items() if k != 'path'} for model in arena.models()]
+
+    @app.get('/api/breakout/state')
+    def breakout_state():
+        return arena.snapshot()
+
+    @app.post('/api/breakout/rounds')
+    async def breakout_start(request: Request):
+        try:
+            body = await request.json()
+        except ValueError as exc:
+            raise HTTPException(422, 'Expected a JSON object.') from exc
+        if not isinstance(body, dict):
+            raise HTTPException(422, 'Expected a JSON object.')
+        model_id = body.get('model')
+        if model_id is not None and not safe_model_id(model_id):
+            raise HTTPException(422, 'Invalid model ID.')
+        if owned.snapshot().get('status') in {'playing', 'learning'}:
+            raise HTTPException(409, 'A Pong match or learning phase is running; finish it before playing Breakout.')
+        try:
+            return await asyncio.to_thread(arena.start, body.get('mode'), body.get('seed'), model_id,
+                                           body.get('speed', 1))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/breakout/abort')
+    async def breakout_abort():
+        return await asyncio.to_thread(arena.abort, 'aborted')
+
+    @app.get('/api/breakout/frame.jpg')
+    def breakout_frame():
+        if arena.frame_bytes is None:
+            return Response(status_code=204)
+        return Response(arena.frame_bytes, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+    @app.websocket('/ws/breakout')
+    async def breakout_keys(websocket: WebSocket):
+        if not local_origin(websocket.headers.get('origin')):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        try:
+            while True:
+                message = await websocket.receive_json()
+                if not isinstance(message, dict):
+                    await websocket.close(code=1008)
+                    break
+                if message.get('blur'):
+                    # Leaving the tab ends your round; a DQN round keeps playing.
+                    if arena.snapshot().get('mode') == 'human':
+                        await asyncio.to_thread(arena.abort, 'focus_lost')
+                    continue
+                keys = message.get('keys', [])
+                if not isinstance(keys, list) or len(keys) > 3 or any(key not in {'left', 'right', 'fire'} for key in keys):
+                    await websocket.close(code=1008)
+                    break
+                arena.set_keys(keys)
+        except (WebSocketDisconnect, ValueError):
+            pass
 
     dist = project / 'web' / 'dist'
 

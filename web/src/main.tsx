@@ -98,30 +98,226 @@ function LineChart({ metrics, field, color, label }: { metrics: Metric[]; field:
   </svg>
 }
 
-function GameFeed({ playing, hasMatch }: { playing: boolean; hasMatch: boolean }) {
+type FeedText = { endpoint?: string; alt?: string; idleTitle?: string; idleText?: string; tag?: string }
+function GameFeed({ playing, hasMatch, endpoint = '/api/frame.jpg', alt = 'Live Atari Pong game', idleTitle = 'Your next opponent learns.', idleText = 'Play a match. Watch the network train. Meet the next version.', tag = 'ATARI PONG · REAL ENVIRONMENT' }: { playing: boolean; hasMatch: boolean } & FeedText) {
   const [src, setSrc] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const active = useRef(playing)
   active.current = playing
-  const refresh = useCallback(() => setSrc(`/api/frame.jpg?t=${Date.now()}`), [])
+  const refresh = useCallback(() => setSrc(`${endpoint}?t=${Date.now()}`), [endpoint])
   useEffect(() => {
     if (playing || hasMatch) refresh()
     return () => { if (timer.current) clearTimeout(timer.current) }
   }, [playing, hasMatch, refresh])
   const next = () => { if (active.current) timer.current = setTimeout(refresh, 66) }
   return <div className="game-feed">
-    {src && <img className={loaded ? 'arcade-frame loaded' : 'arcade-frame'} src={src} alt="Live Atari Pong game" onLoad={() => { setLoaded(true); next() }} onError={() => { if (!loaded) setSrc(null); if (active.current) timer.current = setTimeout(refresh, 400) }} />}
+    {src && <img className={loaded ? 'arcade-frame loaded' : 'arcade-frame'} src={src} alt={alt} onLoad={() => { setLoaded(true); next() }} onError={() => { if (!loaded) setSrc(null); if (active.current) timer.current = setTimeout(refresh, 400) }} />}
     {!loaded && <div className="game-empty">
       <div className="paddle-symbol" aria-hidden="true"><span /><i /><span /></div>
-      <strong>{playing ? 'Connecting to Atari…' : 'Your next opponent learns.'}</strong>
-      <p>{playing ? 'Waiting for the first frame from the game engine.' : 'Play a match. Watch the network train. Meet the next version.'}</p>
-      <span className="engine-tag">ATARI PONG · REAL ENVIRONMENT</span>
+      <strong>{playing ? 'Connecting to Atari…' : idleTitle}</strong>
+      <p>{playing ? 'Waiting for the first frame from the game engine.' : idleText}</p>
+      <span className="engine-tag">{tag}</span>
     </div>}
   </div>
 }
 
+type BreakoutModel = { id: string; label: string; detail?: string; kind?: string }
+type BreakoutPair = { seed: number; model: string; human: number; dqn: number; winner: string; time?: string }
+type BreakoutRow = { mode?: string; seed?: number; score?: number; model?: string; completed?: boolean; reason?: string; decisions?: number }
+type BreakoutState = {
+  status: string; mode?: string; seed?: number; speed?: number; model?: string | null; score?: number
+  decisions?: number; lives?: number | null; max_decisions?: number; completed?: boolean; reason?: string
+  history?: BreakoutRow[]; pairs?: BreakoutPair[]
+}
+const breakoutReasons: Record<string, string> = {
+  game_over: 'Game over', time_limit: '5-minute limit reached', aborted: 'Stopped', focus_lost: 'Stopped: tab lost focus',
+  input_timeout: 'Stopped: keyboard connection lost', server_stopped: 'Stopped: server shut down',
+}
+const randomSeed = () => Math.floor(Math.random() * 100000)
+
+function BreakoutView({ online, pongActive }: { online: boolean | null; pongActive: boolean }) {
+  const [state, setState] = useState<BreakoutState>({ status: 'idle' })
+  const [models, setModels] = useState<BreakoutModel[]>([])
+  const [model, setModel] = useState('')
+  const [seed, setSeed] = useState(randomSeed)
+  const [speed, setSpeed] = useState(1)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const keys = useRef(new Set<string>())
+  const region = useRef<HTMLDivElement>(null)
+  const socket = useRef<WebSocket | null>(null)
+  const playing = state.status === 'playing'
+  const humanPlaying = playing && state.mode === 'human'
+
+  useEffect(() => {
+    api<BreakoutModel[]>('/api/breakout/models').then(list => { setModels(list); setModel(current => current || list[0]?.id || '') })
+      .catch(() => { /* Older servers have no Breakout support. */ })
+  }, [])
+  useEffect(() => {
+    let alive = true
+    const poll = async () => { try { const value = await api<BreakoutState>('/api/breakout/state'); if (alive) setState(value) } catch { /* Reconnects with the page. */ } }
+    void poll()
+    const interval = setInterval(poll, playing ? 250 : 1200)
+    return () => { alive = false; clearInterval(interval) }
+  }, [playing])
+
+  useEffect(() => {
+    if (!humanPlaying) { keys.current.clear(); return }
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/breakout`)
+    socket.current = ws
+    let blurred = false
+    const send = () => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ keys: [...keys.current] })) }
+    const release = () => { keys.current.clear(); blurred = true; if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ keys: [], blur: true })) }
+    ws.onopen = () => { blurred = false; send(); region.current?.focus({ preventScroll: true }) }
+    const keyName = (key: string) => ({ ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'fire' } as Record<string, string>)[key]
+    const down = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement)?.matches('input, select, textarea')) return
+      const key = keyName(event.key)
+      if (key) { event.preventDefault(); keys.current.add(key); send() }
+      if (event.key === 'Escape') { event.preventDefault(); void stop() }
+    }
+    const up = (event: KeyboardEvent) => { const key = keyName(event.key); if (key) { event.preventDefault(); keys.current.delete(key); send() } }
+    const visibility = () => { if (document.hidden) release() }
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up)
+    window.addEventListener('blur', release); document.addEventListener('visibilitychange', visibility)
+    const heartbeat = setInterval(() => { if (!blurred) send() }, 100)
+    return () => {
+      clearInterval(heartbeat); keys.current.clear()
+      window.removeEventListener('keydown', down); window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', visibility)
+      ws.close(); if (socket.current === ws) socket.current = null
+    }
+  // A socket belongs to one human round.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [humanPlaying])
+
+  const begin = async (mode: 'human' | 'ai') => {
+    setBusy(mode === 'human' ? 'Starting your round' : 'Loading the trained DQN'); setError(null)
+    try { setState(await api<BreakoutState>('/api/breakout/rounds', { mode, seed, model, speed })) }
+    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setBusy(null) }
+  }
+  const stop = async () => { try { setState(await api<BreakoutState>('/api/breakout/abort', {})) } catch (err) { setError(err instanceof Error ? err.message : String(err)) } }
+  const press = (key: string, held: boolean) => {
+    if (held) keys.current.add(key); else keys.current.delete(key)
+    const ws = socket.current
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ keys: [...keys.current] }))
+  }
+
+  const rows = state.history ?? []
+  const done = (mode: string) => rows.find(row => row.mode === mode && row.seed === seed && row.completed && (mode === 'human' || row.model === model))
+  const live = (mode: string) => playing && state.mode === mode && state.seed === seed && (mode === 'human' || state.model === model)
+  const yourScore = live('human') ? state.score : done('human')?.score
+  const dqnScore = live('ai') ? state.score : done('ai')?.score
+  const chosen = models.find(item => item.id === model)
+  const remaining = numberOf(state.max_decisions, 4500)! - (playing ? numberOf(state.decisions) ?? 0 : 0)
+  const verdict = yourScore !== undefined && dqnScore !== undefined && !playing
+    ? yourScore === dqnScore ? 'A draw on this seed.' : yourScore > dqnScore ? 'You beat the DQN on this seed.' : 'The DQN wins this seed.'
+    : done('human') ? 'Your score is in. Now watch the DQN play the same seed.' : 'Play your round first, then watch the DQN on the same seed.'
+  const pairs = state.pairs ?? []
+  const label = (id: string) => models.find(item => item.id === id)?.label.replace(' · trained DQN', '') ?? id
+  const blocked = Boolean(busy) || online === false || pongActive
+
+  return <>
+    {error && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>Breakout needs attention.</strong><p>{error}</p></div><button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button></div>}
+    {pongActive && <div className="error-banner" role="status"><Icon name="info" /><div><strong>A Pong match or learning phase is running.</strong><p>Breakout starts once it finishes, so both games never compete for the engine.</p></div></div>}
+    <div className="workspace-grid">
+      <section className="arena-card" aria-labelledby="breakout-title"><div className="card-heading"><div><span className="section-index">01 / TAKE TURNS</span><h2 id="breakout-title">You vs. a trained DQN, same seed</h2></div><span className={`pill ${playing ? 'live' : 'neutral'}`}><span className="status-dot" />{playing ? (state.mode === 'human' ? 'Your round' : 'DQN round') : state.status === 'finished' ? 'Round finished' : 'Ready'}</span></div>
+        <div className="scoreboard"><div className="player human"><span className="player-label"><span className="player-icon">H</span>YOU<span className="player-side">SEED {seed}</span></span><strong>{fmt(yourScore, 0)}</strong></div><div className="match-clock"><span>{playing ? `${state.mode === 'human' ? 'YOUR' : 'DQN'} ROUND${state.speed && state.speed > 1 ? ` · ${state.speed}×` : ''}` : 'NEXT ROUND'}</span><strong>{duration(remaining / 15)}</strong><small>{playing && typeof state.lives === 'number' ? `${state.lives} ${state.lives === 1 ? 'LIFE' : 'LIVES'} LEFT` : 'GAME TIME LEFT'}</small></div><div className="player machine"><span className="player-label"><span className="player-side">{chosen ? chosen.label.replace(' · trained DQN', '').toUpperCase() : 'TRAINED'}</span>DQN<span className="player-icon">Q</span></span><strong>{fmt(dqnScore, 0)}</strong></div></div>
+        <div className="game-region" tabIndex={0} ref={region} aria-label="Breakout game. Use left and right arrows or A and D to move, and space to launch the ball."><GameFeed playing={playing} hasMatch={state.status !== 'idle'} endpoint="/api/breakout/frame.jpg" alt="Live Atari Breakout game" idleTitle="Break more bricks than the DQN." idleText="Play a round, then watch a trained network play the exact same start." tag="ATARI BREAKOUT · REAL ENVIRONMENT" /><div className="feed-bottom"><span><span className={`live-light ${playing ? 'on' : ''}`} />{playing ? (state.mode === 'human' ? 'LIVE · YOUR TURN' : 'LIVE · TRAINED DQN PLAYING') : state.status === 'finished' ? (breakoutReasons[state.reason ?? ''] ?? state.reason ?? 'ROUND COMPLETE').toUpperCase() : 'WAITING FOR A ROUND'}</span><span>{playing ? `${fmt(state.decisions, 0)} / ${fmt(state.max_decisions, 0)} DECISIONS` : '15 DECISIONS / S'}</span></div></div>
+        <div className="arena-actions"><div className="keyboard-help"><span className="key">←</span><span className="key">→</span><span className="or">or A / D</span><span className="key space">SPACE</span><span>launch</span></div>{playing ? <button className="button stop" onClick={() => void stop()}><Icon name="stop" size={16} />Stop round</button> : <div className="turn-buttons"><button className="button primary" disabled={blocked} onClick={() => void begin('human')}><Icon name="play" size={16} />{busy ?? (done('human') ? 'Replay your round' : '1 · Play your round')}</button><button className="button secondary" disabled={blocked || !model} onClick={() => void begin('ai')}><Icon name="brain" size={16} />2 · Watch the DQN</button></div>}</div>
+        {humanPlaying && <div className="touch-controls" aria-label="Touch controls">{[['left', '← Left'], ['right', 'Right →'], ['fire', 'Launch']].map(([key, title]) => <button key={key} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); press(key, true) }} onPointerUp={() => press(key, false)} onPointerCancel={() => press(key, false)}>{title}</button>)}</div>}
+        <div className="arena-footnote"><Icon name="info" size={14} /><span>Both rounds use the same seed and random no-op start, 5 lives and a 5-minute limit. The DQN acts with ε 0.05, as in its evaluation.</span></div>
+      </section>
+
+      <section className="learning-card" aria-labelledby="breakout-setup-title"><div className="card-heading"><div><span className="section-index">02 / SET UP THE ROUND</span><h2 id="breakout-setup-title">Opponent and seed</h2></div><span className="brain-icon"><Icon name="grid" size={22} /></span></div>
+        <div className="breakout-setup">
+          <label>Trained DQN<select value={model} disabled={playing} onChange={e => setModel(e.target.value)}>{models.map(item => <option key={item.id} value={item.id}>{item.label.replace(' · trained DQN', '')}</option>)}</select></label>
+          {chosen?.detail && <p className="setup-detail">{chosen.detail}</p>}
+          <div className="seed-row"><label>Seed<input type="number" min="0" max="2147483646" value={seed} disabled={playing} onChange={e => setSeed(Math.max(0, Math.floor(Number(e.target.value) || 0)))} /></label><button className="button secondary" disabled={playing} onClick={() => setSeed(randomSeed())}><Icon name="refresh" size={14} />New seed</button></div>
+          <label>DQN playback speed<select value={speed} disabled={playing} onChange={e => setSpeed(Number(e.target.value))}><option value={1}>1× · real time</option><option value={2}>2×</option><option value={4}>4× · quick result</option></select></label>
+          <div className="verdict"><Icon name={yourScore !== undefined && dqnScore !== undefined && !playing ? 'check' : 'info'} size={17} /><p>{verdict}</p></div>
+          <p className="setup-note">Breakout is single-player, so you take turns. Keeping the seed fixed means you and the DQN face the same opening, which makes the two scores comparable.</p>
+        </div>
+      </section>
+    </div>
+
+    <section className="history-card" aria-labelledby="breakout-history-title"><div className="card-heading"><div><span className="section-index">03 / HEAD TO HEAD</span><h2 id="breakout-history-title">Same-seed results<span className="count-badge">{pairs.length}</span></h2></div></div>{pairs.length ? <div className="table-scroll"><table><thead><tr><th>SEED</th><th>DQN</th><th>YOU</th><th>DQN SCORE</th><th>RESULT</th></tr></thead><tbody>{pairs.map(row => <tr key={`${row.seed}-${row.model}`}><td><span className="match-number">{row.seed}</span></td><td><span className="model-chip">{label(row.model)}</span></td><td>{fmt(row.human, 0)}</td><td>{fmt(row.dqn, 0)}</td><td><span className={`result-pill ${row.winner === 'dqn' ? 'machine-won' : ''}`}>{row.winner === 'draw' ? 'Draw' : row.winner === 'you' ? 'You win' : 'DQN wins'}</span></td></tr>)}</tbody></table></div> : <div className="history-empty"><span><Icon name="history" size={24} /></span><div><strong>No head-to-head yet.</strong><p>Finish your round and the DQN's round on the same seed to record a result here.</p></div></div>}</section>
+  </>
+}
+
+const trainingSteps = [
+  ['Pre-train', 'Single-player Pong against Atari’s built-in opponent: 10M decisions on a GPU, about 4.5 hours per network.'],
+  ['Mirror', 'In two-player Pong the DQN controls the other paddle, so the weights are flipped left-to-right. This is exact and is checked numerically.'],
+  ['Fine-tune', '3M decisions (about 1,800 games, 2.3 hours) in real two-player Pong against a scripted ball-tracking paddle whose skill changes every game.'],
+  ['Keep learning', 'In this lab the model plays you at ε 0.05 and runs 450 more updates after every match, so it adapts to your play.'],
+]
+const pongTwoPlayer = [
+  { name: 'Nature DQN', score: '+21.0', detail: 'Best evaluation, reached at 2.9M decisions (final +17.0). Started at −6.0 after 100k.', file: 'pong_lab_nature_best_learner.pt' },
+  { name: 'Dueling DQN', score: '+19.0', detail: 'Best and final evaluation at 3M decisions. Started at +1.0 after 100k.', file: 'pong_lab_dueling_best_learner.pt' },
+]
+const pongSingle = [
+  { name: 'Nature DQN', score: '+19.1', detail: 'Final validation (peak +19.2), 10 games at ε 0.05. First reached +18 at 8.5M decisions. 4.4 h.' },
+  { name: 'Dueling DQN', score: '+17.2', detail: 'Final validation (peak +19.8). First reached +18 at 8.75M decisions. 4.8 h.' },
+]
+const breakoutRuns = [
+  { name: 'Uniform replay', score: '46.6', detail: 'Nature DQN, RMSProp 0.00025, 200k uniform replay, target copy every 10k. Best single episode 257. 6.3 h.' },
+  { name: 'Prioritized replay', score: '29.9', detail: 'Same as uniform, but samples surprising transitions more often (α 0.6, β 0.4→1). Best episode 77. 7.2 h.' },
+  { name: 'Upstream reference', score: '12.9', detail: 'Reference-code settings: Adam 0.0001, 10k replay, target copy every 1k. Its episodes end at each lost life, so its average is per life. 6.6 h.' },
+]
+const sharedSettings = [
+  ['Input', '4 stacked 84×84 grayscale frames'], ['Decision', 'Every 4 emulator frames (15 per second)'],
+  ['Reward', 'Clipped to −1, 0 or +1 for training'], ['Discount γ', '0.99'], ['Batch', '32 transitions per update'],
+  ['Exploration', 'ε from 1.0 to 0.1 over the first 1M decisions (10M-decision runs)'], ['Loss', 'Huber on the TD error, frozen target network'],
+  ['Runs', 'GPU training, seed 7, November 2026'],
+]
+
+function ModelsView() {
+  return <>
+    <section className="history-card models-intro" aria-labelledby="how-title"><div className="card-heading"><div><span className="section-index">01 / HOW THE OPPONENTS WERE TRAINED</span><h2 id="how-title">From Atari’s computer to your opponent</h2></div><span className="brain-icon"><Icon name="brain" size={24} /></span></div>
+      <ol className="train-steps">{trainingSteps.map(([title, text], index) => <li key={title}><span>{String(index + 1).padStart(2, '0')}</span><strong>{title}</strong><p>{text}</p></li>)}</ol>
+      <p className="models-note">Every model is a Deep Q-Network: a convolutional network that reads the last four frames and predicts the future score of each joystick action. It learns only from game rewards, with no human examples. The <b>Nature</b> network has one output head (the 2015 paper’s design). <b>Dueling</b> splits it into a state value and per-action advantages.</p>
+    </section>
+
+    <div className="models-grid">
+      <section className="history-card model-group" aria-labelledby="pong-two-title"><div className="card-heading"><div><span className="section-index">PONG · YOUR LIVE OPPONENT</span><h2 id="pong-two-title">Two-player fine-tune</h2></div><span className="pill live">USED IN PONG</span></div>
+        {pongTwoPlayer.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>points per game vs hard scripted paddle (8 games, greedy)</small></div></div>)}
+        <p className="model-foot">Replay 500k, learning starts after 20k, ε 0.2 → 0.02 over 1M decisions, evaluated every 100k. Score = your points minus the opponent’s, so +21 is a shut-out.</p>
+      </section>
+      <section className="history-card model-group" aria-labelledby="pong-single-title"><div className="card-heading"><div><span className="section-index">PONG · STARTING POINT</span><h2 id="pong-single-title">Single-player pre-training</h2></div><span className="pill neutral">10M DECISIONS</span></div>
+        {pongSingle.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>validation vs Atari’s built-in opponent</small></div></div>)}
+        <p className="model-foot">Nature RMSProp (lr 0.00025), 1M-frame uniform replay, target copy every 10k decisions, learning starts after 50k.</p>
+      </section>
+      <section className="history-card model-group" aria-labelledby="breakout-models-title"><div className="card-heading"><div><span className="section-index">BREAKOUT · TAKE-TURNS OPPONENTS</span><h2 id="breakout-models-title">Three replay strategies</h2></div><span className="pill live">USED IN BREAKOUT</span></div>
+        {breakoutRuns.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>average of the last 100 training episodes</small></div></div>)}
+        <p className="model-foot">10M decisions each. Training averages still include exploration (ε about 0.1), so they are not greedy evaluation scores.</p>
+      </section>
+      <section className="history-card model-group" aria-labelledby="shared-title"><div className="card-heading"><div><span className="section-index">SHARED RECIPE</span><h2 id="shared-title">What every run has in common</h2></div></div>
+        <dl className="settings-list">{sharedSettings.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>
+        <p className="model-foot">Files, configs and per-episode metrics are in <code>trained_models/</code> in the repository.</p>
+      </section>
+    </div>
+  </>
+}
+
+type View = 'pong' | 'breakout' | 'models'
+
 function App() {
+  const [view, setView] = useState<View>(() => {
+    const hash = location.hash.replace('#', '')
+    return hash === 'breakout' || hash === 'models' ? hash : 'pong'
+  })
+  const choose = (next: View) => { setView(next); window.history.pushState(null, '', `#${next}`); window.scrollTo({ top: 0 }) }
+  useEffect(() => {
+    // Typed URLs and the browser's back/forward buttons switch views too.
+    const sync = () => {
+      const hash = location.hash.replace('#', '')
+      if (hash === 'pong' || hash === 'breakout' || hash === 'models') setView(hash)
+    }
+    window.addEventListener('hashchange', sync); window.addEventListener('popstate', sync)
+    return () => { window.removeEventListener('hashchange', sync); window.removeEventListener('popstate', sync) }
+  }, [])
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const [online, setOnline] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -265,19 +461,25 @@ function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#top" aria-label="Pong Learning Lab home"><span className="brand-mark"><i /><i /><i /><i /></span><span>PONG<span className="brand-sub">LEARNING LAB</span></span></a>
+      <a className="brand" href="#top" aria-label="DeepQ Learning Lab home" onClick={() => choose('pong')}><span className="brand-mark"><i /><i /><i /><i /></span><span>DEEPQ<span className="brand-sub">LEARNING LAB</span></span></a>
       <span className="side-label">WORKSPACE</span>
-      <a className="nav-item active" href="#arena"><Icon name="game" />Play & learn<span className="nav-dot" /></a>
-      <a className="nav-item" href="#learning"><Icon name="chart" />Learning monitor</a>
-      <a className="nav-item" href="#history"><Icon name="history" />Match history</a>
-      <div className="side-session"><span className="side-label">ACTIVE SESSION</span><strong>{hasSession ? snapshot.id?.slice(0, 20) : 'Your lab is ready'}</strong><p>{hasSession ? `${snapshot.origin === 'imported_checkpoint' ? 'Started from a trained model. ' : ''}Experience carries into every next game.` : 'Create a session to begin learning from play.'}</p><button className="side-button" onClick={() => setSetupOpen(!setupOpen)} disabled={playing || learning}><Icon name="plus" size={16} />New / restore session</button></div>
-      <div className="side-bottom"><span className="network-dot" />LOCAL EXPERIMENT<div>DQN · Atari Pong</div><p>One game. One learning step.<br />A different opponent next time.</p></div>
+      <button className={`nav-item ${view === 'pong' ? 'active' : ''}`} onClick={() => choose('pong')}><Icon name="game" />Pong · live duel{view === 'pong' && <span className="nav-dot" />}</button>
+      {view === 'pong' && <><a className="nav-item sub" href="#learning"><Icon name="chart" size={16} />Learning monitor</a><a className="nav-item sub" href="#history"><Icon name="history" size={16} />Match history</a></>}
+      <button className={`nav-item ${view === 'breakout' ? 'active' : ''}`} onClick={() => choose('breakout')}><Icon name="grid" />Breakout · take turns{view === 'breakout' && <span className="nav-dot" />}</button>
+      <button className={`nav-item ${view === 'models' ? 'active' : ''}`} onClick={() => choose('models')}><Icon name="brain" />Trained models{view === 'models' && <span className="nav-dot" />}</button>
+      {view === 'pong' && <div className="side-session"><span className="side-label">ACTIVE SESSION</span><strong>{hasSession ? snapshot.id?.slice(0, 20) : 'Your lab is ready'}</strong><p>{hasSession ? `${snapshot.origin === 'imported_checkpoint' ? 'Started from a trained model. ' : ''}Experience carries into every next game.` : 'Create a session to begin learning from play.'}</p><button className="side-button" onClick={() => setSetupOpen(!setupOpen)} disabled={playing || learning}><Icon name="plus" size={16} />New / restore session</button></div>}
+      <div className="side-bottom"><span className="network-dot" />LOCAL EXPERIMENT<div>DQN · Atari Pong + Breakout</div><p>{view === 'breakout' ? <>Same seed for both players.<br />Compare the scores.</> : view === 'models' ? <>How each opponent<br />learned to play.</> : <>One game. One learning step.<br />A different opponent next time.</>}</p></div>
     </aside>
 
     <main id="top">
-      <header className="page-header"><div><div className="eyebrow">REINFORCEMENT LEARNING / INTERACTIVE DEMO</div><h1>Play. Learn. Play again<span>.</span></h1><p>You play the game. The network learns from the experience.</p></div><div className={`connection ${online === false ? 'offline' : ''}`}><span />{online === null ? 'Connecting' : online ? 'Local engine connected' : 'Engine disconnected'}</div></header>
+      <header className="page-header"><div><div className="eyebrow">DEEPQ LEARNING LAB / {view === 'pong' ? 'PONG · LIVE DUEL' : view === 'breakout' ? 'BREAKOUT · TAKE TURNS' : 'TRAINED MODELS'}</div><h1>{view === 'pong' ? <>Play. Learn. Play again<span>.</span></> : view === 'breakout' ? <>Same bricks. Two players<span>.</span></> : <>How they learned<span>.</span></>}</h1><p>{view === 'pong' ? 'You play the game. The network learns from the experience.' : view === 'breakout' ? 'You play a round of Breakout, then a trained DQN plays the exact same start.' : 'Where each opponent in this lab came from, and how well it plays.'}</p></div><div className={`connection ${online === false ? 'offline' : ''}`}><span />{online === null ? 'Connecting' : online ? 'Local engine connected' : 'Engine disconnected'}</div></header>
 
-      {(error || snapshot.error || online === false) && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>{online === false ? 'The local engine is not connected.' : 'The experiment needs attention.'}</strong><p>{error ?? snapshot.error ?? 'Start the Pong backend, then this page will reconnect automatically. No game data is being simulated.'}</p></div>{error && <button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button>}</div>}
+      <nav className="game-switch" aria-label="Choose a game">{([['pong', 'game', 'Pong', 'Live duel'], ['breakout', 'grid', 'Breakout', 'Take turns'], ['models', 'brain', 'Trained models', 'How they learned']] as [View, string, string, string][]).map(([id, icon, title, note]) => <button key={id} className={view === id ? 'selected' : ''} aria-pressed={view === id} onClick={() => choose(id)}><Icon name={icon} size={17} /><span>{title}<small>{note}</small></span></button>)}</nav>
+
+      {view === 'breakout' && <BreakoutView online={online} pongActive={playing || learning} />}
+      {view === 'models' && <ModelsView />}
+      {view === 'pong' && <>
+      {(error || snapshot.error || online === false) && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>{online === false ? 'The local engine is not connected.' : 'The experiment needs attention.'}</strong><p>{error ?? snapshot.error ?? 'Start the lab backend, then this page will reconnect automatically. No game data is being simulated.'}</p></div>{error && <button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button>}</div>}
 
       {(!hasSession || setupOpen) && <section className="setup-card" aria-labelledby="setup-title"><div className="setup-intro"><span className="pill neutral">START HERE</span><h2 id="setup-title">Meet your first opponent.</h2><p>{chosenModel ? `${chosenModel.label} plays at ε ${fmt(chosenModel.epsilon ?? 0.05, 2)} and keeps learning from your games after each final whistle.` : 'A fresh DQN starts with random weights. Each completed game adds experience; learning happens after the final whistle.'}</p></div><div className="setup-fields"><label>Match length<select value={durationSetting} onChange={e => setDurationSetting(Number(e.target.value))}><option value={120}>2 minutes · full demo</option><option value={20}>20 seconds · quick cycle</option><option value={60}>1 minute</option></select></label><label>Updates after a game<select value={updatesSetting} onChange={e => setUpdatesSetting(Number(e.target.value))}><option value={450}>450 updates · recommended</option><option value={128}>128 updates</option><option value={32}>32 updates · quick cycle</option></select></label><label>Opponent<select value={opponent} onChange={e => { setOpponent(e.target.value); const model = pretrained.find(item => item.id === e.target.value); if (model) setNetworkSetting(model.network) }}>{pretrained.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}<option value="">Fresh DQN · random weights</option></select></label><label>Network<select value={chosenModel?.network ?? networkSetting} disabled={Boolean(chosenModel)} title={chosenModel ? 'Set by the trained model' : undefined} onChange={e => setNetworkSetting(e.target.value)}><option value="nature">Nature DQN · paper network</option><option value="dueling">Dueling DQN · value + advantage</option></select></label><label className="seed-label">Session seed<input type="number" min="0" max="4294967294" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label><button className="button primary create-button" onClick={newSession} disabled={Boolean(busy) || online === false}><Icon name="plus" size={17} />{busy ?? 'Create session'}</button>{saved.length > 0 && <div className="restore-row"><select aria-label="Saved session" value={selectedSession} onChange={e => setSelectedSession(e.target.value)}><option value="">Restore a saved session…</option>{saved.map(item => <option value={item.id} key={item.id}>{item.id.slice(0, 8)} · {item.network === 'dueling' ? 'Dueling' : 'Nature'}{item.active_version !== undefined ? ` · v${item.active_version}` : ''}{item.games !== undefined ? ` · ${item.games} games` : ''}</option>)}</select><button className="button secondary" disabled={!selectedSession || Boolean(busy)} onClick={() => void perform('/api/sessions', { session_id: selectedSession }, 'Restoring session')}><Icon name="refresh" size={15} />Restore</button></div>}</div></section>}
 
@@ -312,7 +514,8 @@ function App() {
         const result = textOf(row.outcome, row.result) ?? (!valid ? textOf(row.reason, row.status) ?? 'Excluded' : human === undefined || machine === undefined ? 'Recorded' : human === machine ? 'Draw' : machine > human ? 'Machine leads' : 'You lead')
         return <React.Fragment key={rowId}><tr><td><span className="match-number">{String(numberOf(row.index, row.match_index) ?? history.length-index).padStart(2, '0')}</span><small>{rowId.slice(0, 18)}</small></td><td><span className="model-chip">{version(row.policy_version)}</span></td><td>{fmt(human)}</td><td>{fmt(machine)}</td><td>{duration(numberOf(row.elapsed_seconds, row.duration_seconds))}</td><td><span className={`result-pill ${!valid ? 'excluded' : machine !== undefined && human !== undefined && machine > human ? 'machine-won' : ''}`}>{result}</span></td><td><button className="row-detail" aria-label={`Show details for match ${rowId}`} onClick={() => setExpandedRow(expandedRow === rowId ? null : rowId)}>{expandedRow === rowId ? '−' : '+'}</button></td></tr>{expandedRow === rowId && <tr className="details-row"><td colSpan={7}><pre>{JSON.stringify(row, null, 2)}</pre></td></tr>}</React.Fragment>
       })}</tbody></table></div> : <div className="history-empty"><span><Icon name="history" size={24} /></span><div><strong>A clean slate.</strong><p>Your matches, model versions and learning cycles will be recorded here.</p></div></div>}</section>
-      <footer><span>PONG LEARNING LAB<span className="footer-sep">/</span>AN EXPERIMENT IN DEEP Q-LEARNING</span><span>Real gameplay. Real updates. No annotated data.</span></footer>
+      </>}
+      <footer><span>DEEPQ LEARNING LAB<span className="footer-sep">/</span>AN EXPERIMENT IN DEEP Q-LEARNING</span><span>Real gameplay. Real updates. No annotated data.</span></footer>
     </main>
   </div>
 }
