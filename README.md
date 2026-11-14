@@ -1,272 +1,125 @@
-# Pong Learning Lab
+# Deep Q-Network (DQN): Reproduction and Pong Learning Lab
 
-**Status: implemented against the v0.2 design and smoke-tested on real two-player
-Atari Pong under WSL2. The requirements' formal approval is not yet recorded.**
+A PyTorch implementation of the core method from Mnih et al., *Human-level control
+through deep reinforcement learning* (**Nature**, 2015), with two applications:
 
-A live Pong demo where you and a Deep Q-Network control opposing paddles.
-After every valid completed game, the machine learns from accumulated gameplay
-experience. The UI shows training progress, then lets you play again and compare
-the new result with the previous game.
+1. **A compute-bounded reproduction** of the DQN learning loop on Atari Breakout,
+   including a matched-seed comparison of uniform and prioritized replay.
+2. **Pong Learning Lab**, a browser demo where you play two-player Atari Pong against
+   a DQN that learns from each completed game.
 
-## Review documents
+> **Scope.** This is an educational reproduction of the algorithm, not a rerun of the
+> paper's 49-game, 50-million-frame benchmark. Results below are from short, local runs
+> and are labelled with their budgets.
 
-| Document | What to review |
-| --- | --- |
-| [Architecture](ARCHITECTURE.md) | Two-player game, after-game learning, visual panels, model/replay lifecycle and recovery |
-| [Requirements](REQUIREMENTS.md) | Proposed settings, acceptance checks and scope to freeze |
-| This README | User journey, what exists and what the new demo adds |
+## Contents
 
-This revision replaces the earlier multi-game, separate-round proposal. To launch
-the lab, see [Run the Pong Learning Lab UI](#run-the-pong-learning-lab-ui); on
-Linux, install `pip install -e ".[env,lab,ui]"` and run `dqn-lab`.
+- [The paper](#the-paper)
+- [This implementation](#this-implementation)
+- [Results](#results)
+- [Quick start](#quick-start)
+- [Branches](#branches)
+- [Repository map](#repository-map)
+- [Documentation](#documentation)
+- [Limitations](#limitations)
+- [Citation and attribution](#citation-and-attribution)
 
-## The demo loop
+## The paper
 
-```mermaid
-flowchart LR
-    P[Play Pong: user vs DQN v0] --> R[Show result and previous-game comparison]
-    R --> L[Learn after game: replay, minibatches, DQN updates]
-    L --> S[Show training summary and save DQN v1]
-    S --> N[Play again with DQN v1]
-    N --> R
+**Mnih, V., Kavukcuoglu, K., Silver, D., et al. (2015).** *Human-level control through
+deep reinforcement learning.* Nature 518, 529–533.
+[Read the paper](https://www.nature.com/articles/nature14236) · [DOI: 10.1038/nature14236](https://doi.org/10.1038/nature14236)
+
+The paper trains one agent per game from raw pixels and the game score, using the same
+algorithm, network and hyperparameters across **49 Atari 2600 games**. The authors report
+that the agent reaches more than 75% of a professional human tester's score on more than
+half of the games (29 games). Scores are normalized so that random play is 0% and the
+professional tester is 100%:
+
+```
+normalized score = 100 × (DQN score − random score) / (human score − random score)
 ```
 
-1. **Play:** choose a new session or compatible saved model. You control one
-   paddle; the machine controls the other in the same live match.
-2. **Result:** see the outcome, score/return, model version and comparison with
-   the previous valid game. The first game establishes the initial record.
-3. **Learn:** automatically sample the machine's experience from session replay
-   and update its DQN. Show progress, loss, TD error, Q-values and replay size.
-4. **Inspect:** see actual updates, before/after diagnostics and the saved model
-   version. If there is too little experience, show that honestly and retain the model.
-5. **Play again:** continue with the updated learner and retained experience.
+The method has three parts that this repository implements:
 
-A game ends on the environment's termination or a proposed 120-second simulation
-cap. A point/rally does not trigger training. Weights stay fixed during play;
-updates happen afterward. No annotated dataset is needed: the machine learns from
-its own actions and rewards while facing the user.
+| Component | What it does | Why |
+|---|---|---|
+| Convolutional Q-network | Maps four stacked 84 × 84 frames to one Q-value per action | Learns directly from pixels |
+| Experience replay | Stores transitions in a buffer (1M frames in the paper) and trains on random minibatches | Breaks correlations between consecutive frames |
+| Target network | A copy of the weights, refreshed every C = 10,000 updates, used for the bootstrap target | Keeps the regression target from moving every step |
 
-## Run the Pong Learning Lab UI
+The paper's update target is `y = r + γ · max_a′ Q(s′, a′; θ⁻)` (with `y = r` at episode
+end), trained by minimizing `(y − Q(s, a; θ))²`. The paper reports an ablation in
+which disabling replay or the target network hurts performance (Extended Data Table 3).
 
-**Quick start** (after the one-time setup below). Open PowerShell in the `DQN`
-folder and run:
+## This implementation
 
-```powershell
-wsl bash scripts/run_wsl_lab.sh
-```
+| Area | What is here |
+|---|---|
+| Learner | One-step DQN with uniform replay and a separate target network; Huber loss, gradient clipping, ε-greedy exploration |
+| Network | Nature DQN (3 conv layers, 512 hidden units) and a Dueling variant (value and advantage streams) |
+| Preprocessing | Grayscale, 84 × 84, max over the last two frames, 4-frame stack, action repeat 4 |
+| Replay extension | Proportional prioritized replay with importance-sampling weights. It is an **extension**, not part of the 2015 paper |
+| Training pipeline | Config-driven runs (`configs/`), multi-seed pipeline, checkpoints, evaluation and metrics CSVs |
+| Two-player demo | Pong Learning Lab: FastAPI service, React/TypeScript UI, PettingZoo `pong_v3` environment, learning after each game |
+| Tests | Unit and integration tests under `tests/` |
 
-When it prints `Pong Learning Lab: open http://localhost:8765`, open
-<http://localhost:8765> in your normal Windows browser. Keep that PowerShell window
-open while you play; press **Ctrl+C** in it to stop the server.
+The implementation follows the paper in the mechanism, and deviates in budget, games and
+schedule. The full comparison is in [`docs/paper_alignment.md`](docs/paper_alignment.md).
 
-### Why WSL2 on Windows
+## Results
 
-Two-player Atari Pong needs `multi-agent-ale-py`, which has no Windows wheel. A
-locally compiled Windows DLL (`scripts/build_windows_atari.py`) is blocked when
-Smart App Control is on, so the lab server runs inside WSL2 (Linux). The browser
-stays on Windows; WSL2 forwards `localhost:8765` automatically.
+### Breakout: matched-seed replay comparison (short budget)
 
-### One-time setup
+Three seeds (7, 17, 29) per replay method, each trained for a 250,000 selected-action budget
+(about 1M emulator frames). Each policy was scored on 10 held-out episodes at ε = 0.05.
+Source: [`results/reviewed_experiment_snapshot.json`](results/reviewed_experiment_snapshot.json).
 
-1. **Install WSL2.** In an administrator PowerShell run the command below, reboot,
-   then open **Ubuntu** from the Start menu once to create your Linux username and
-   password.
+| Policy | Seed 7 | Seed 17 | Seed 29 | Mean of seed means |
+|---|---:|---:|---:|---:|
+| Random (baseline) | 1.0 | 0.8 | 1.2 | 1.00 |
+| Uniform replay | 2.4 | 1.9 | 6.2 | 3.50 |
+| Prioritized replay | 4.5 | 0.8 | 1.5 | 2.27 |
 
-   ```powershell
-   wsl --install
-   ```
+- Uniform replay beat random on all three seeds.
+- Prioritized replay's paired differences from uniform were +2.1, −1.1 and −4.7 points.
+- With three seeds and 10 episodes each, the replay-method ranking is **not settled**.
 
-2. **Install the lab environment.** From PowerShell in the `DQN` folder:
+Training curves and the evaluation comparison:
 
-   ```powershell
-   wsl bash scripts/setup_wsl_lab.sh
-   ```
+| Training reward over time | Evaluation score comparison |
+|---|---|
+| ![Training reward for the project's Breakout runs](results/plots/training_reward.png) | ![Evaluation score comparison for the project's Breakout runs](results/plots/evaluation_comparison.png) |
 
-   This creates a Linux virtual environment at `~/.venvs/dqn-lab` (your Windows
-   `.venv` is untouched), installs PyTorch and the lab dependencies, builds the
-   two-player Atari runtime and ends with `multi-agent-ale-py loaded; pong_v3 import OK`.
-   If system packages are missing it runs `sudo apt-get` and asks for your Ubuntu
-   password.
+### Pong: single-player and two-player models
 
-   **GPU:** when an NVIDIA GPU is visible in WSL (`wsl nvidia-smi` works; Windows
-   driver 560 or newer), the script installs the CUDA 12.6 build of PyTorch and the
-   lab trains on the GPU automatically. To switch an existing CPU install to CUDA:
+| Model | Budget | Result |
+|---|---|---|
+| Single-player Nature DQN (ALE/Pong-v5), seed 7 | 10M environment steps | Validation mean **+19.1** |
+| Single-player Dueling DQN, seed 7 | 10M environment steps | Validation mean **+17.2** |
+| Two-player lab fine-tune, Nature | 3M steps from the single-player weights | 8-game evaluation mean **+21.0** |
+| Two-player lab fine-tune, Dueling | 3M steps from the single-player weights | 8-game evaluation mean **+19.0** |
 
-   ```powershell
-   wsl bash -c 'mkdir -p ~/.cache/piptmp && TMPDIR=~/.cache/piptmp ~/.venvs/dqn-lab/bin/python -m pip install "torch==2.14.1+cu126" --index-url https://download.pytorch.org/whl/cu126 && rm -rf ~/.cache/piptmp'
-   ```
+Pong scores are points, and a game is won at 21. The single-player and two-player numbers
+use different evaluation protocols, so they are not a head-to-head ranking. Checkpoints,
+configs and metrics are in [`trained_models/`](trained_models/README.md).
 
-   (`TMPDIR` matters: WSL's `/tmp` is a small RAM disk and the CUDA wheels need
-   several GB to unpack.)
+### Breakout: 10M-step runs (training averages only)
 
-3. **Build the browser UI** (needs [Node.js](https://nodejs.org/) on Windows; only
-   again after changing `web/src`):
+| Run | Replay | Last-100 training-episode average |
+|---|---|---:|
+| Upstream-compatible profile, seed 7 | uniform | 12.9 |
+| Uniform, seed 7 | uniform | 46.6 |
+| Prioritized, seed 7 | prioritized | 29.9 |
 
-   ```powershell
-   cd web; npm install; npm run build; cd ..
-   ```
+These are averages over training episodes with exploration still on (ε ≈ 0.07–0.1). They are
+**not** greedy evaluation scores. A greedy evaluation of these checkpoints is a planned next step.
 
-   The server serves the built files from `web/dist`.
+### Reference gameplay clips
 
-### Playing
-
-1. Press **Create session**. The defaults are a 120-second game, 450 learning
-   updates after each game and the **Nature DQN** network. The **Network** menu
-   also offers **Dueling DQN**: the same convolutional layers, with the head split
-   into a state value V(s) and per-action advantages A(s, a), combined as
-   Q = V + A − mean(A). A session keeps the network it was created with.
-2. Press **Start match**. You control the **left** paddle; the DQN controls the right one.
-
-   | Key | Action |
-   | --- | --- |
-   | ↑ or W | Move up |
-   | ↓ or S | Move down |
-   | Space | Serve |
-   | Esc | Abort the game (no learning from it) |
-
-   Keep the browser tab focused: switching away releases your keys and aborts the game.
-3. After the game the machine learns automatically (450 updates: about 6 s for
-   Nature and 7 s for Dueling on an RTX 3050 laptop GPU; about 28–40 s on CPU), then shows
-   the learning charts, the new model version and the comparison with your last game.
-   Press **Play again** to face the updated model.
-
-Expect weak play at first: the machine explores randomly until about six full games
-in, and needs dozens of games before it clearly tracks the ball. The machine decides
-15 times per second (every four emulator frames, as in the DQN paper); a GPU speeds
-up learning between games, not reactions during play.
-
-**Resuming a session.** After every completed game and learning phase the model,
-optimizer, replay buffer and counters are saved under `experiments/pong_sessions/`.
-To continue later, open **New / restore session**, pick the session from
-**Restore a saved session…** (listed newest first with its network, model version
-and number of games) and press **Restore**. A game that was interrupted is not
-saved; the session resumes from the last completed game. A restored session uses
-the GPU when one is available.
-
-### On Linux or macOS
-
-No WSL is needed. From the `DQN` folder:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[env,lab,ui]" websockets
-dqn-lab
-```
-
-Then build the UI as in step 3 (`cd web && npm install && npm run build`) and open
-<http://localhost:8765>.
-
-### Check that everything works
-
-With the server running, this plays three short scripted games over the real API,
-checks that the model version advances after each one and that the session restores:
-
-```powershell
-wsl ~/.venvs/dqn-lab/bin/python scripts/smoke_pong_lab.py
-```
-
-Run the test suite inside WSL with `wsl ~/.venvs/dqn-lab/bin/python -m pytest -q`.
-
-### Troubleshooting
-
-| Problem | Fix |
-| --- | --- |
-| `Build the UI first` in the browser | Run step 3, then reload the page. |
-| `No lab environment at ~/.venvs/dqn-lab` | Run the one-time setup, step 2. |
-| Port 8765 already in use | A server is already running; use it, or stop it with Ctrl+C. To use another port: `wsl bash scripts/run_wsl_lab.sh --port 8800`. |
-| `apt-get`: Release file `is not valid yet` | The Windows clock or timezone is wrong. Fix it in Windows Settings › Time & language, then run `wsl --shutdown` and retry. |
-| Page does not load from Windows | Check the server window shows no error, then try <http://127.0.0.1:8765>. |
-
-## What the UI should show
-
-| Area | Visible information |
-| --- | --- |
-| Pong canvas | Both paddles, human controls, scoring, timer, active model version and exploration |
-| Learning panel | Updates completed, live loss/TD-error/Q charts, replay count, target copies and elapsed time |
-| Model summary | Input/output version, checkpoint and fixed-sample before/after diagnostics |
-| Last-game comparison | Human/machine score and return, outcome, duration, model version and deltas |
-| Session history | Every match and training phase, with observed performance trends |
-
-Game rewards can include serve penalties, so verified goal counts and learning
-return are kept distinct. If only returns are available, label the result a return
-leader/draw and mark goal/penalty counts unavailable. Better results in a later match are observed performance; the human
-opponent and exploration also change. Training is real, but improvement after each
-individual game is not guaranteed.
-
-## Implementation and defaults
-
-- Local FastAPI backend plus React/TypeScript/Vite browser UI.
-- Two-player Atari Pong adapter using PettingZoo's parallel environment.
-- Existing CNN and vanilla DQN learner, uniform replay and a separate target network.
-- Replay capacity 20,000 machine transitions; minimum 256 sampleable entries;
-  batch size 32; 450 optimizer updates after each eligible match (about one per
-  four decisions of a full game); exploration falls from 1.0 to 0.05 over 10,000
-  committed decisions, about six full games.
-- Preserve replay, optimizer/target state and schedules across games; save a
-  versioned model after successful learning and use it in the next match.
-- Keep the active model intact if learning fails/cancels; exclude aborted/invalid
-  match experience; restore committed between-game state after restart.
-
-These defaults are for the interactive demo and can change during review. The
-existing single-agent Pong checkpoint is not automatically compatible with the
-new two-player action/observation contract.
-
-## Current status
-
-| Capability | Status |
-| --- | --- |
-| Atari preprocessing, CNN, replay, DQN learner and checkpoints | Existing Python foundation |
-| CLI training/evaluation, sample export, Colab notebook | Existing separate workflows |
-| Pygame arena | Existing separate single-agent rounds; no after-game learning |
-| Simultaneous user-versus-DQN Pong (`pong_environment.py`) | Implemented; real two-player Atari verified in WSL2 |
-| Automatic after-game learning and model-version promotion (`pong_session.py`) | Implemented; unit tested and smoke tested |
-| Live learning charts and previous-game comparison (`pong_server.py`, `web/`) | Implemented; UI renders a restored session |
-| Between-game session/replay recovery | Implemented; restore verified by the smoke test |
-
-Verification so far: 47 tests pass on Windows and in WSL2.
-`scripts/probe_two_player_pong.py` confirms both paddles act, both sides score and
-each decision is exactly four emulator frames. `scripts/smoke_pong_lab.py` plays
-three scripted games over HTTP/WebSocket (v0 -> v1 -> v2 -> v3) and restores v3
-with all six updates. Not yet done: human keyboard play-through, the
-REQUIREMENTS acceptance scenarios with the full defaults, and any claim of skill
-improvement. Initial play from a random model will be weak; a strong policy
-requires enough experience and updates.
-
-## Approval scope
-
-Approval of the requirements would freeze the Pong-only **play -> learn -> play again -> compare** demo, the proposed
-defaults and the acceptance checks. The earlier Double DQN, multi-game dashboard,
-external-data import and paper-benchmark dashboard are deferred. The new match
-protocol is a learning demonstration based on DQN, rather than a direct numerical
-reproduction of the paper's single-agent benchmark.
-
-## Existing implementation and commands
-
-The sections below describe the current repository and remain available while
-the proposed design is under review. Start/run commands here use existing code.
-
-### A reproduction of the Nature 2015 Deep Q-Network (DQN) paper
-
-## Three-member module allocation
-
-See the [team module guide](modules/README.md) for roles, implementation ownership,
-handoff contracts and deliverables:
-
-- Member 1: [dataset and experience generation](modules/01_dataset/README.md).
-- Member 2: [training pipeline](modules/02_training/README.md).
-- Member 3: [testing and evaluation](modules/03_testing/README.md).
-- Shared, led by Member 3: [human-versus-agent UI](modules/04_ui/README.md).
-
-Dataset generation means online gameplay experience and replay storage in this
-DQN project. The existing desktop UI supports human/AI score competition on matched rounds.
-
-**Paper:** Volodymyr Mnih et al., *Nature* 518, 529–533 (2015). [Read the paper](https://www.nature.com/articles/nature14236) · [DOI: 10.1038/nature14236](https://doi.org/10.1038/nature14236)
-
-The paper introduced a deep Q-network that learns Atari control directly from pixels and game scores. The authors evaluated one algorithm, architecture, and hyperparameter setting across 49 Atari games, reporting performance comparable to a professional human games tester across the set.
-
-## Atari gameplay showcase
-
-These four reference gameplay clips are retained from the linked implementation and are shown here as visual examples of the Atari tasks. **They are not generated by this project's trained checkpoints.** Attribution and license details are in [`assets/upstream_dqn/ATTRIBUTION.md`](assets/upstream_dqn/ATTRIBUTION.md).
+These clips come from the upstream implementation this project builds on. **They are not
+generated by this project's checkpoints.** Attribution is in
+[`assets/upstream_dqn/ATTRIBUTION.md`](assets/upstream_dqn/ATTRIBUTION.md).
 
 | Atlantis | Boxing |
 |---|---|
@@ -274,45 +127,9 @@ These four reference gameplay clips are retained from the linked implementation 
 | Breakout | Pong |
 | ![Breakout gameplay reference](assets/upstream_dqn/breakout.gif) | ![Pong gameplay reference](assets/upstream_dqn/pong.gif) |
 
-## What this project reproduces
+## Quick start
 
-The paper's central method is off-policy Q-learning from image observations. Four recent frames form the state; a convolutional network estimates action values; replay memory reuses past transitions; and a separate target network stabilizes the bootstrap target. The original study trained separate agents on 49 Atari games for 50 million frames with replay memory holding up to one million frames.
-
-This repository implements the visual DQN architecture and learning loop, plus a separate prioritized-replay comparison. It includes a short, matched-seed Breakout experiment for practical comparison and a longer upstream-compatible Breakout profile. The latter ports the linked TensorFlow/Gym implementation to PyTorch/Gymnasium. **This is a reproduction project, not a claim that the paper's full 49-game result has been reproduced.** The local comparison runs use a substantially shorter budget than the paper; see [`docs/experiment_protocol.md`](docs/experiment_protocol.md) and [`docs/upstream_comparison.md`](docs/upstream_comparison.md) for scope and deviations.
-
-## Results from this project
-
-These plots come from this repository's recorded Breakout experiments, not from the paper or the reference GIFs. The comparison uses three seeds per replay method and a 250,000 selected-action training budget per run; it should be read as a small reproduction experiment, not as a replication of the paper's full benchmark.
-
-| Training reward over time | Evaluation score comparison |
-|---|---|
-| ![Training reward for the project's Breakout runs](results/plots/training_reward.png) | ![Evaluation score comparison for the project's Breakout runs](results/plots/evaluation_comparison.png) |
-
-Summary data: [`results/metrics/evaluation_summary.csv`](results/metrics/evaluation_summary.csv). The prioritized replay extension is reported separately from the paper's uniform replay baseline.
-
-## DQN model and training details
-
-- **Input:** four stacked 84 × 84 grayscale frames.
-- **Network:** three convolutional layers followed by a 512-unit fully connected layer and action-value outputs.
-- **Learning:** one-step Bellman targets, Huber loss, gradient clipping, and a periodically updated target network.
-- **Experience:** uniform replay for the paper-style baseline; proportional prioritized replay is an optional extension.
-- **Atari processing:** action repetition, max pooling over recent frames, image resizing, and frame stacking. The upstream-compatible profile also includes no-op starts, episodic-life boundaries, FIRE reset, and sign-clipped rewards.
-
-See [`assets/upstream_dqn/nn.svg`](assets/upstream_dqn/nn.svg) for the retained network illustration, with source attribution in the asset directory.
-
-## Training pipeline and human/AI UI
-
-See [Atari Lab](docs/atari_lab.md) for the Nature preset and desktop arena, and
-the [pipeline guide](docs/pipeline.md) for isolated multi-seed experiments.
-
-```bash
-python -m dqn_project.pipeline --config configs/nature.yaml --games Breakout Pong --output experiments/nature-smoke --smoke
-python -m dqn_project.play --checkpoint-dir experiments/nature-smoke --games Breakout Pong
-```
-
-## Run the project
-
-Create an environment and install the package:
+### Install
 
 ```bash
 python3 -m venv .venv
@@ -320,39 +137,25 @@ source .venv/bin/activate
 python3 -m pip install -e '.[all]'
 ```
 
-Atari environments require ALE support and ROM access under terms that apply to you. No ROMs are included. Check the environment setup:
+Atari environments need ALE support and ROMs under terms that apply to you. No ROMs are
+included. Check the setup:
 
 ```bash
 python scripts/environment_smoke_test.py --env ALE/Breakout-v5
 ```
 
-Run the short uniform-replay baseline or the prioritized-replay comparison:
+### Train
 
 ```bash
-dqn-train --config configs/default.yaml
-dqn-train --config configs/prioritized.yaml
+dqn-train --config configs/default.yaml        # uniform replay, short budget
+dqn-train --config configs/prioritized.yaml    # prioritized replay extension
+dqn-train --config configs/upstream_breakout.yaml   # 10M-step profile; GPU recommended
 ```
 
-Run the longer upstream-compatible profile on a GPU, or use the Colab notebook to store outputs on Drive:
+Colab: [`notebooks/07_colab_gpu_breakout.ipynb`](notebooks/07_colab_gpu_breakout.ipynb) ·
+[notebook instructions](notebooks/README.md). Multi-seed experiments: [pipeline guide](docs/pipeline.md).
 
-```bash
-dqn-train --config configs/upstream_breakout.yaml
-```
-
-[Open the Google Colab notebook](notebooks/07_colab_gpu_breakout.ipynb) · [Notebook instructions](notebooks/README.md)
-
-The upstream-compatible configuration uses a 10-million selected-action budget. It matches the reference implementation's training behavior and Atari data pipeline as closely as this PyTorch/Gymnasium port allows; random streams, framework behavior, and scores can differ. Periodic checkpoints save model and optimizer state but omit replay and environment state, so an interrupted run cannot be resumed exactly.
-
-Training can also stop after a configured number of completed episodes by setting
-`training.max_episodes` in the YAML file. To watch a checkpoint play in a local game
-window, run `dqn-play --checkpoint checkpoints/your_checkpoint.pt --env ALE/Breakout-v5`.
-In the upstream profile, a life-loss boundary counts as a training episode. Colab saves
-an evaluation GIF instead of opening a local desktop window.
-
-See the [step-by-step guide to watching the agent play](guides/watch-agent-play/README.md)
-for checkpoint setup, installation, live display, and Colab GIF instructions.
-
-Evaluate a saved checkpoint or random policy:
+### Evaluate and watch
 
 ```bash
 dqn-evaluate --config configs/default.yaml \
@@ -361,25 +164,87 @@ dqn-evaluate --config configs/default.yaml \
 
 dqn-evaluate --config configs/default.yaml --random-baseline \
   --output results/metrics/random_evaluation.json
+
+dqn-play --checkpoint checkpoints/your_checkpoint.pt --env ALE/Breakout-v5
 ```
 
-Run the local test suite:
+Step-by-step viewing instructions: [`guides/watch-agent-play/README.md`](guides/watch-agent-play/README.md).
+
+### Pong Learning Lab
+
+Play two-player Pong against a DQN that learns after each game. Setup differs by platform
+(WSL2 on Windows, native on Linux or macOS). Start with:
+
+```bash
+wsl bash scripts/run_wsl_lab.sh     # Windows: then open http://localhost:8765
+dqn-lab                             # Linux / macOS, after pip install -e ".[env,lab,ui]" websockets
+```
+
+The full setup, controls, troubleshooting and design status are in
+[`docs/pong_learning_lab.md`](docs/pong_learning_lab.md).
+
+### Tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
+## Branches
+
+The repository has four branches on GitHub: `main` and three feature branches. All three
+feature branches are already merged into `main`, so `main` contains their work.
+
+| Branch | Purpose | Status |
+|---|---|---|
+| [`main`](https://github.com/bhagathchan1/DQN/tree/main) | Integrated project: DQN reproduction, Pong Learning Lab, trained models, documentation | Default branch; use this one |
+| [`feature/pong-learning-lab`](https://github.com/bhagathchan1/DQN/tree/feature/pong-learning-lab) | Two-player Pong lab UI, GPU Pong configs, two-player fine-tune script, trained Pong models | Merged into `main` |
+| [`feature/reproducible-training-pipeline`](https://github.com/bhagathchan1/DQN/tree/feature/reproducible-training-pipeline) | Atari transition collection from saved policies, upstream Atari profile in the training pipeline, Colab import fix | Merged into `main` |
+| [`feature/trained-models`](https://github.com/bhagathchan1/DQN/tree/feature/trained-models) | GPU training runs, Dueling DQN option, 15 Hz cadence, session resume information | Merged into `main` |
+
+Pull requests should target `main`. The feature branches are kept for history.
+
 ## Repository map
 
-- `src/dqn_project/` — model, learner, Atari preprocessing, replay, training, evaluation, and live play.
-- `configs/` — uniform, prioritized, and upstream-compatible training profiles.
-- `notebooks/` — Colab workflow for GPU training, evaluation, and media export.
-- `results/` — recorded experiment metrics, plots, and report artifacts.
-- `docs/` — paper comparison, experiment protocol, architecture notes, and data pipeline.
-- `guides/` — detailed setup steps for watching a trained agent play.
-- `assets/upstream_dqn/` — attributed visual references from the linked implementation.
+| Path | Contents |
+|---|---|
+| `src/dqn_project/` | Model, learner, Atari preprocessing, replay (uniform and prioritized), training, evaluation, play, Pong adapter and lab server |
+| `configs/` | Training profiles: Nature, Dueling, uniform, prioritized, upstream Breakout, Pong |
+| `scripts/` | Training and smoke-test entry points, Pong probes, WSL2 lab setup, report builders |
+| `web/` | React/TypeScript/Vite UI for the Pong Learning Lab |
+| `trained_models/` | Trained Pong and Breakout checkpoints, configs and metrics CSVs |
+| `results/` | Recorded experiment snapshot, metrics and plots |
+| `tests/` | Unit and integration tests |
+| `notebooks/` | Colab GPU workflow |
+| `guides/` | Setup guide for watching a trained agent play |
+| `modules/` | Team module guides (dataset, training, testing, UI) |
+| `assets/upstream_dqn/` | Attributed reference visuals from the upstream implementation |
 
-## Citation
+## Documentation
+
+| Document | Covers |
+|---|---|
+| [`docs/paper_alignment.md`](docs/paper_alignment.md) | Paper vs implementation, element by element, with deviations |
+| [`docs/experiment_protocol.md`](docs/experiment_protocol.md) | Matched-seed Breakout protocol |
+| [`docs/upstream_comparison.md`](docs/upstream_comparison.md) | Comparison with the upstream implementation |
+| [`docs/upstream_data_pipeline.md`](docs/upstream_data_pipeline.md) | Upstream-compatible data pipeline |
+| [`docs/atari_lab.md`](docs/atari_lab.md) | Nature preset and desktop arena |
+| [`docs/pipeline.md`](docs/pipeline.md) | Isolated multi-seed experiments |
+| [`docs/architecture_notes.md`](docs/architecture_notes.md) | Architecture notes |
+| [`docs/runtime_validation.md`](docs/runtime_validation.md) | Runtime validation records |
+| [`docs/pong_learning_lab.md`](docs/pong_learning_lab.md) | Pong Learning Lab: setup, controls, design and status |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`REQUIREMENTS.md`](REQUIREMENTS.md) | Pong Learning Lab architecture and requirements |
+| [`modules/README.md`](modules/README.md) | Team module allocation and handoffs |
+
+## Limitations
+
+- Breakout runs use a ~1M-frame budget, not the paper's 50M frames per game, and only one game.
+- Three seeds and 10 evaluation episodes per policy give descriptive results, not confidence intervals.
+- The 10M-step Breakout numbers are training averages with exploration on, not greedy scores.
+- The Pong lab learns between games; the paper learns online during play.
+- Pong lab rewards include serve penalties, so returns and verified goal counts are reported separately.
+- Prioritized replay is an extension and is not attributed to the 2015 paper.
+
+## Citation and attribution
 
 ```bibtex
 @article{mnih2015humanlevel,
@@ -392,3 +257,7 @@ python -m unittest discover -s tests -v
   doi     = {10.1038/nature14236}
 }
 ```
+
+The Atari environments are provided by the Arcade Learning Environment and the
+multi-agent Pong environment by PettingZoo. Reference clips and the network illustration
+are from the upstream implementation; see [`assets/upstream_dqn/ATTRIBUTION.md`](assets/upstream_dqn/ATTRIBUTION.md).
