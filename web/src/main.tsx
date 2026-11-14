@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
+import { Icon, api, fmt, numberOf } from './shared'
+import { TrainingExplained } from './training'
 
 type RecordData = Record<string, unknown>
 type Metric = { update?: number; loss?: number; td_error?: number; mean_q?: number; [key: string]: unknown }
@@ -24,16 +26,10 @@ type PretrainedModel = { id: string; label: string; network: string; epsilon?: n
 type SavedSession = { id: string; status?: string; active_version?: number; network?: string; games?: number; [key: string]: unknown }
 
 const EMPTY: Snapshot = { status: 'no_session' }
-const numberOf = (...values: unknown[]): number | undefined => {
-  for (const value of values) if (typeof value === 'number' && Number.isFinite(value)) return value
-  return undefined
-}
 const textOf = (...values: unknown[]): string | undefined => {
   for (const value of values) if (typeof value === 'string' && value.length) return value
   return undefined
 }
-const fmt = (value: unknown, digits = 2) => typeof value === 'number' && Number.isFinite(value)
-  ? value.toLocaleString(undefined, { maximumFractionDigits: digits }) : '—'
 const version = (value: unknown) => typeof value === 'number' ? `v${value}` : '—'
 const signed = (value: number | undefined) => value === undefined ? '—' : `${value > 0 ? '+' : ''}${fmt(value)}`
 const recordOf = (value: unknown): RecordData => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as RecordData : {}
@@ -42,38 +38,6 @@ const labels: Record<string, string> = {
   no_session: 'Not started', ready: 'Ready to play', playing: 'Match in progress', learning: 'Learning',
   summary: 'Learning complete', insufficient_data: 'Collecting experience', failed: 'Needs attention',
   cancelled: 'Learning cancelled', interrupted: 'Session interrupted', restoring: 'Restoring session',
-}
-
-async function api<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(url, body === undefined ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const detail = payload.detail ?? payload.error ?? `${response.status} ${response.statusText}`
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
-  }
-  return payload as T
-}
-
-function Icon({ name, size = 20 }: { name: string; size?: number }) {
-  const paths: Record<string, React.ReactNode> = {
-    play: <path d="m9 5 11 7-11 7Z" />,
-    stop: <rect x="6" y="6" width="12" height="12" rx="1" />,
-    arrow: <><path d="M5 12h14m-5-5 5 5-5 5" /></>,
-    chart: <><path d="M4 4v16h17M8 14l4-5 4 3 5-7" /></>,
-    history: <><path d="M3 11a9 9 0 1 1 2 7M3 5v6h6m3-4v6l4 2" /></>,
-    game: <><path d="M7 8h10a4 4 0 0 1 4 4l1 4a3 3 0 0 1-5 2l-2-2H9l-2 2a3 3 0 0 1-5-2l1-4a4 4 0 0 1 4-4Z" /><path d="M7 10v5m-2-2h4m7-1h.01m3 2h.01" /></>,
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
-    brain: <><path d="M12 3v18M12 6C8 0 2 5 5 9c-5 4-1 11 4 9 0 3 3 3 3 0m0-12c4-6 10-1 7 3 5 4 1 11-4 9 0 3-3 3-3 0" /><path d="m6 8 3 2m9-2-3 2M7 15l2-2m8 2-2-2" /></>,
-    download: <><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5" /></>,
-    refresh: <><path d="M20 11a8 8 0 0 0-14-5L3 9m0-6v6h6m-5 4a8 8 0 0 0 14 5l3-3m0 6v-6h-6" /></>,
-    info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></>,
-    check: <path d="m5 12 4 4L20 5" />,
-    plus: <path d="M12 5v14M5 12h14" />,
-    close: <path d="m6 6 12 12M18 6 6 18" />,
-  }
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.info}</svg>
 }
 
 function LineChart({ metrics, field, color, label }: { metrics: Metric[]; field: string; color: string; label: string }) {
@@ -245,60 +209,6 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
     </div>
 
     <section className="history-card" aria-labelledby="breakout-history-title"><div className="card-heading"><div><span className="section-index">03 / HEAD TO HEAD</span><h2 id="breakout-history-title">Same-seed results<span className="count-badge">{pairs.length}</span></h2></div></div>{pairs.length ? <div className="table-scroll"><table><thead><tr><th>SEED</th><th>DQN</th><th>YOU</th><th>DQN SCORE</th><th>RESULT</th></tr></thead><tbody>{pairs.map(row => <tr key={`${row.seed}-${row.model}`}><td><span className="match-number">{row.seed}</span></td><td><span className="model-chip">{label(row.model)}</span></td><td>{fmt(row.human, 0)}</td><td>{fmt(row.dqn, 0)}</td><td><span className={`result-pill ${row.winner === 'dqn' ? 'machine-won' : ''}`}>{row.winner === 'draw' ? 'Draw' : row.winner === 'you' ? 'You win' : 'DQN wins'}</span></td></tr>)}</tbody></table></div> : <div className="history-empty"><span><Icon name="history" size={24} /></span><div><strong>No head-to-head yet.</strong><p>Finish your round and the DQN's round on the same seed to record a result here.</p></div></div>}</section>
-  </>
-}
-
-const trainingSteps = [
-  ['Pre-train', 'Single-player Pong against Atari’s built-in opponent: 10M decisions on a GPU, about 4.5 hours per network.'],
-  ['Mirror', 'In two-player Pong the DQN controls the other paddle, so the weights are flipped left-to-right. This is exact and is checked numerically.'],
-  ['Fine-tune', '3M decisions (about 1,800 games, 2.3 hours) in real two-player Pong against a scripted ball-tracking paddle whose skill changes every game.'],
-  ['Keep learning', 'In this lab the model plays you at ε 0.05 and runs 450 more updates after every match, so it adapts to your play.'],
-]
-const pongTwoPlayer = [
-  { name: 'Nature DQN', score: '+21.0', detail: 'Best evaluation, reached at 2.9M decisions (final +17.0). Started at −6.0 after 100k.', file: 'pong_lab_nature_best_learner.pt' },
-  { name: 'Dueling DQN', score: '+19.0', detail: 'Best and final evaluation at 3M decisions. Started at +1.0 after 100k.', file: 'pong_lab_dueling_best_learner.pt' },
-]
-const pongSingle = [
-  { name: 'Nature DQN', score: '+19.1', detail: 'Final validation (peak +19.2), 10 games at ε 0.05. First reached +18 at 8.5M decisions. 4.4 h.' },
-  { name: 'Dueling DQN', score: '+17.2', detail: 'Final validation (peak +19.8). First reached +18 at 8.75M decisions. 4.8 h.' },
-]
-const breakoutRuns = [
-  { name: 'Uniform replay', score: '46.6', detail: 'Nature DQN, RMSProp 0.00025, 200k uniform replay, target copy every 10k. Best single episode 257. 6.3 h.' },
-  { name: 'Prioritized replay', score: '29.9', detail: 'Same as uniform, but samples surprising transitions more often (α 0.6, β 0.4→1). Best episode 77. 7.2 h.' },
-  { name: 'Upstream reference', score: '12.9', detail: 'Reference-code settings: Adam 0.0001, 10k replay, target copy every 1k. Its episodes end at each lost life, so its average is per life. 6.6 h.' },
-]
-const sharedSettings = [
-  ['Input', '4 stacked 84×84 grayscale frames'], ['Decision', 'Every 4 emulator frames (15 per second)'],
-  ['Reward', 'Clipped to −1, 0 or +1 for training'], ['Discount γ', '0.99'], ['Batch', '32 transitions per update'],
-  ['Exploration', 'ε from 1.0 to 0.1 over the first 1M decisions (10M-decision runs)'], ['Loss', 'Huber on the TD error, frozen target network'],
-  ['Runs', 'GPU training, seed 7, November 2026'],
-]
-
-function ModelsView() {
-  return <>
-    <section className="history-card models-intro" aria-labelledby="how-title"><div className="card-heading"><div><span className="section-index">01 / HOW THE OPPONENTS WERE TRAINED</span><h2 id="how-title">From Atari’s computer to your opponent</h2></div><span className="brain-icon"><Icon name="brain" size={24} /></span></div>
-      <ol className="train-steps">{trainingSteps.map(([title, text], index) => <li key={title}><span>{String(index + 1).padStart(2, '0')}</span><strong>{title}</strong><p>{text}</p></li>)}</ol>
-      <p className="models-note">Every model is a Deep Q-Network: a convolutional network that reads the last four frames and predicts the future score of each joystick action. It learns only from game rewards, with no human examples. The <b>Nature</b> network has one output head (the 2015 paper’s design). <b>Dueling</b> splits it into a state value and per-action advantages.</p>
-    </section>
-
-    <div className="models-grid">
-      <section className="history-card model-group" aria-labelledby="pong-two-title"><div className="card-heading"><div><span className="section-index">PONG · YOUR LIVE OPPONENT</span><h2 id="pong-two-title">Two-player fine-tune</h2></div><span className="pill live">USED IN PONG</span></div>
-        {pongTwoPlayer.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>points per game vs hard scripted paddle (8 games, greedy)</small></div></div>)}
-        <p className="model-foot">Replay 500k, learning starts after 20k, ε 0.2 → 0.02 over 1M decisions, evaluated every 100k. Score = your points minus the opponent’s, so +21 is a shut-out.</p>
-      </section>
-      <section className="history-card model-group" aria-labelledby="pong-single-title"><div className="card-heading"><div><span className="section-index">PONG · STARTING POINT</span><h2 id="pong-single-title">Single-player pre-training</h2></div><span className="pill neutral">10M DECISIONS</span></div>
-        {pongSingle.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>validation vs Atari’s built-in opponent</small></div></div>)}
-        <p className="model-foot">Nature RMSProp (lr 0.00025), 1M-frame uniform replay, target copy every 10k decisions, learning starts after 50k.</p>
-      </section>
-      <section className="history-card model-group" aria-labelledby="breakout-models-title"><div className="card-heading"><div><span className="section-index">BREAKOUT · TAKE-TURNS OPPONENTS</span><h2 id="breakout-models-title">Three replay strategies</h2></div><span className="pill live">USED IN BREAKOUT</span></div>
-        {breakoutRuns.map(item => <div className="model-row" key={item.name}><div><strong>{item.name}</strong><p>{item.detail}</p></div><div className="model-score"><b>{item.score}</b><small>average of the last 100 training episodes</small></div></div>)}
-        <p className="model-foot">10M decisions each. Training averages still include exploration (ε about 0.1), so they are not greedy evaluation scores.</p>
-      </section>
-      <section className="history-card model-group" aria-labelledby="shared-title"><div className="card-heading"><div><span className="section-index">SHARED RECIPE</span><h2 id="shared-title">What every run has in common</h2></div></div>
-        <dl className="settings-list">{sharedSettings.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>
-        <p className="model-foot">Files, configs and per-episode metrics are in <code>trained_models/</code> in the repository.</p>
-      </section>
-    </div>
   </>
 }
 
@@ -478,7 +388,7 @@ function App() {
       <nav className="game-switch" aria-label="Choose a game">{([['pong', 'game', 'Pong', 'Live duel'], ['breakout', 'grid', 'Breakout', 'Take turns'], ['models', 'brain', 'Trained models', 'How they learned']] as [View, string, string, string][]).map(([id, icon, title, note]) => <button key={id} className={view === id ? 'selected' : ''} aria-pressed={view === id} onClick={() => choose(id)}><Icon name={icon} size={17} /><span>{title}<small>{note}</small></span></button>)}</nav>
 
       {view === 'breakout' && <BreakoutView online={online} pongActive={playing || learning} />}
-      {view === 'models' && <ModelsView />}
+      {view === 'models' && <TrainingExplained onPlay={choose} />}
       {view === 'pong' && <>
       {(error || snapshot.error || online === false) && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>{online === false ? 'The local engine is not connected.' : 'The experiment needs attention.'}</strong><p>{error ?? snapshot.error ?? 'Start the lab backend, then this page will reconnect automatically. No game data is being simulated.'}</p></div>{error && <button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button>}</div>}
 

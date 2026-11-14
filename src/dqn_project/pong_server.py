@@ -326,6 +326,9 @@ def create_app(root=None, controller=None, breakout=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        # Read the training curves once in the background so the training page opens instantly.
+        from .training_curves import load_curves
+        threading.Thread(target=load_curves, name='warm-curves', daemon=True).start()
         yield
         await asyncio.to_thread(arena.close)
         await asyncio.to_thread(owned.close)
@@ -483,6 +486,43 @@ def create_app(root=None, controller=None, breakout=None):
             pass
         finally:
             owned.stop_input('disconnected')
+
+    @app.get('/api/training/curves')
+    def training_curves():
+        # Smoothed, thinned learning curves of the shipped models (read once, cached).
+        from .training_curves import load_curves
+        return load_curves()
+
+    @app.get('/api/training/experience')
+    async def training_experience(game: str = 'breakout', policy: str = 'trained', seed: int = 7):
+        # Real transitions (4 frames, button, reward, next frame), as replay memory stores them.
+        from .training_data import sample_experience
+        try:
+            return await asyncio.to_thread(sample_experience, game, policy, seed)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get('/api/training/runs')
+    def training_runs():
+        from .training_data import list_runs
+        return list_runs()
+
+    @app.get('/api/training/records')
+    async def training_records(run: str, offset: int = 0, limit: int = 50):
+        from .training_data import records
+        try:
+            return await asyncio.to_thread(records, run, offset, limit)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get('/api/training/records/{run}.csv')
+    def training_records_csv(run: str):
+        from .training_data import run_path
+        try:
+            path = run_path(run)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return FileResponse(path, media_type='text/csv', filename=f'{run}_training_log.csv')
 
     # ----- Breakout: take turns with a trained DQN on the same seed ---------------
     @app.get('/api/breakout/models')

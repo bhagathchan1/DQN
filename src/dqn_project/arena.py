@@ -71,6 +71,8 @@ class ArenaRound:
         action = (select_action(self.network, self.state, self.env.action_space.n,
                                 self.epsilon, self.rng, 'cpu') if self.mode == 'ai' else human_action)
         self.state, reward, terminated, truncated, info = self.env.step(action)
+        # The last transition, as a DQN would store it (used to show real training data).
+        self.last_action, self.last_reward = int(action), float(reward)
         self.score += reward
         self.steps += 1
         self.frames += info['emulator_frames']

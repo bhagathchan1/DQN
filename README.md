@@ -148,7 +148,7 @@ uniform replay (200k, RMSProp, target copy every 10k, 6.3 h), prioritized replay
 target copy every 1k, episodes end at each lost life, 6.6 h). Their training averages are in
 the table above.
 
-The lab's **Trained models** page shows the same information. Files, configs and
+The lab's **Trained models** page shows the same information interactively, with the real learning curves and training logs. Files, configs and
 per-episode metrics: [`trained_models/`](trained_models/README.md).
 
 ### Reference gameplay clips
@@ -216,7 +216,13 @@ One browser UI with three views, chosen at the top of the page:
   trained Breakout DQN play the same seed at 1×, 2× or 4× speed. Both rounds get the same
   random no-op start, 5 lives and a 5-minute limit; results are saved to
   `experiments/breakout_arena/scores.csv`. Only one game runs at a time.
-- **Trained models:** how each opponent was trained, with its results.
+- **Trained models:** an interactive, no-background-needed explainer of Deep Q-Learning in
+  seven chapters: what the agent sees (frame stacking), how it decides (Q-values), exploring
+  vs exploiting (an ε slider), learning from mistakes (the update loop, a worked example
+  and a γ slider), **the training data** (real experiences recorded live from Pong or
+  Breakout, randomly or with a trained model, plus a browser and CSV download for every
+  training log), the real learning curves (with hover read-outs and a table view) and
+  cards for each model. Underlined terms open glossary definitions.
 
 Setup differs by platform (WSL2 on Windows, native on Linux or macOS). Start with:
 
