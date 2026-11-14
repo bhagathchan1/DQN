@@ -27,19 +27,25 @@ def evaluate_policy(
     pipeline: str = "project",
     selection: str = "mean",
     video_path: str | Path | None = None,
+    render: bool = False,
+    noop_max: int = 0,
 ) -> dict[str, Any]:
     if episodes <= 0:
         raise ValueError("episodes must be positive")
     if max_steps_per_episode is not None and max_steps_per_episode <= 0:
         raise ValueError("max_steps_per_episode must be positive when provided")
     if selection not in {"mean", "best"}:
-        raise ValueError("selection must be 'mean' or 'best'")
-    env = make_env(
-        env_id,
-        pipeline=pipeline,
-        clip_rewards=False,
-        render_mode="rgb_array" if video_path is not None else None,
-    )
+        raise ValueError("selection must be mean or best")
+    if render and video_path is not None:
+        raise ValueError("choose either live rendering or video recording")
+    options = {}
+    if pipeline != 'project':
+        options['pipeline'] = pipeline
+    if render or video_path is not None:
+        options['render_mode'] = 'human' if render else 'rgb_array'
+    if noop_max:
+        options['noop_max'] = noop_max
+    env = make_env(env_id, **options)
     rng = np.random.default_rng(seed)
     rewards: list[float] = []
     lengths: list[int] = []
@@ -119,6 +125,7 @@ def main() -> None:
     group.add_argument("--checkpoint")
     group.add_argument("--random-baseline", action="store_true")
     parser.add_argument("--output", default="results/metrics/evaluation.json")
+    parser.add_argument("--render", action="store_true", help="Show live gameplay")
     parser.add_argument("--video", help="Optional path for a GIF of the best evaluated episode")
     args = parser.parse_args()
     config = load_config(args.config)
@@ -145,17 +152,22 @@ def main() -> None:
         learner.load(args.checkpoint, load_optimizer=False)
         network = learner.online
         checkpoint_metadata = dict(checkpoint.get("metadata", {}))
+        saved_env = checkpoint_metadata.get("environment_id")
+        if saved_env and saved_env != config["environment"]["id"]:
+            raise ValueError(f"checkpoint environment {saved_env} does not match config")
     result = evaluate_policy(
         network,
         config["environment"]["id"],
         int(config["evaluation"]["episodes"]),
         float(config["evaluation"]["epsilon"]),
-        int(config["run"]["seed"]),
+        int(config["evaluation"].get("seed", config["run"]["seed"])),
         device,
         int(config["evaluation"].get("max_steps_per_episode", 4500)),
-        str(config["environment"].get("pipeline", "project")),
-        str(config["evaluation"].get("selection", "mean")),
-        args.video,
+        pipeline=str(config["environment"].get("pipeline", "project")),
+        selection=str(config["evaluation"].get("selection", "mean")),
+        video_path=args.video,
+        render=args.render,
+        noop_max=int(config['environment'].get('noop_max', 0)),
     )
     result.update(
         {
@@ -163,6 +175,7 @@ def main() -> None:
                 "run_id", f"breakout_random_seed{config['run']['seed']}"
             ),
             "seed": int(config["run"]["seed"]),
+            "evaluation_seed": int(config["evaluation"].get("seed", config["run"]["seed"])),
             "environment_id": str(config["environment"]["id"]),
             "config_id": Path(args.config).stem,
             "replay_type": (

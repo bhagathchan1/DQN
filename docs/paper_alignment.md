@@ -1,5 +1,13 @@
 # Alignment with Mnih et al. (2015)
 
+This page describes the inherited course-budget configuration. The new
+`configs/nature.yaml` adds full-budget multi-game runs, single-frame replay,
+random no-op starts, life-loss learning terminals and the Nature optimizer.
+See [Atari Lab](atari_lab.md) for exact units, the released-code budget and
+remaining differences. In particular, the inherited “50 million emulator frames”
+wording below should not be used to size the new preset: it uses 50 million
+action decisions, matching the released DeepMind launcher, with action repeat four.
+
 This project reproduces the central Deep Q-Network mechanism from
 [Mnih et al., *Nature* 518, 529–533 (2015)](https://doi.org/10.1038/nature14236)
 on one Atari game. It is an educational, compute-bounded reproduction rather

@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 from .model import DQN
+from .optimizer import NatureRMSprop
 from .replay_buffer import ReplayBatch
 
 
@@ -31,27 +32,35 @@ class DQNLearner:
         learning_rate: float = 2.5e-4,
         device: str | torch.device = "cpu",
         optimizer: str = "rmsprop",
+        gradient_clip: float | None = 10.0,
         optimizer_epsilon: float = 0.01,
         gradient_clip_mode: str = "global",
         initializer: str = "pytorch",
         initialize_target_from_online: bool = True,
+        architecture: str = "nature",
     ) -> None:
         if not 0 <= gamma <= 1:
             raise ValueError("gamma must be in [0, 1]")
         self.device = torch.device(device)
         self.gamma = gamma
-        if optimizer not in {"rmsprop", "adam"}:
-            raise ValueError("optimizer must be 'rmsprop' or 'adam'")
+        if optimizer not in {"rmsprop", "adam", "nature_rmsprop"}:
+            raise ValueError("optimizer must be 'rmsprop', 'adam' or 'nature_rmsprop'")
         if gradient_clip_mode not in {"global", "per_parameter"}:
             raise ValueError("gradient_clip_mode must be 'global' or 'per_parameter'")
+        self.gradient_clip = gradient_clip
         self.optimizer_name = optimizer
         self.optimizer_epsilon = optimizer_epsilon
         self.gradient_clip_mode = gradient_clip_mode
         self.initializer = initializer
         self.initialize_target_from_online = initialize_target_from_online
-        self.online = DQN(action_count, input_channels, initializer=initializer).to(self.device)
-        self.target = DQN(action_count, input_channels, initializer=initializer).to(self.device)
-        if optimizer == "adam":
+        self.architecture = architecture
+        self.online = DQN(action_count, input_channels, initializer=initializer,
+                          architecture=architecture).to(self.device)
+        self.target = DQN(action_count, input_channels, initializer=initializer,
+                          architecture=architecture).to(self.device)
+        if optimizer == "nature_rmsprop":
+            self.optimizer = NatureRMSprop(self.online.parameters(), lr=learning_rate, eps=optimizer_epsilon)
+        elif optimizer == "adam":
             self.optimizer = torch.optim.Adam(
                 self.online.parameters(), lr=learning_rate, eps=optimizer_epsilon
             )
@@ -90,18 +99,20 @@ class DQNLearner:
         targets = self.compute_targets(rewards, next_states, terminated)
         td_errors = targets - predicted
         per_item_loss = nn.functional.smooth_l1_loss(predicted, targets, reduction="none")
-        loss = (weights * per_item_loss).mean()
+        weighted = weights * per_item_loss
+        loss = weighted.sum() if self.optimizer_name == 'nature_rmsprop' else weighted.mean()
         if not torch.isfinite(loss):
             raise FloatingPointError("non-finite DQN loss")
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        if self.gradient_clip_mode == "per_parameter":
-            for parameter in self.online.parameters():
-                if parameter.grad is not None:
-                    nn.utils.clip_grad_norm_([parameter], max_norm=10.0)
-        else:
-            nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=10.0)
+        if self.gradient_clip is not None:
+            if self.gradient_clip_mode == "per_parameter":
+                for parameter in self.online.parameters():
+                    if parameter.grad is not None:
+                        nn.utils.clip_grad_norm_([parameter], max_norm=self.gradient_clip)
+            else:
+                nn.utils.clip_grad_norm_(self.online.parameters(), max_norm=self.gradient_clip)
         self.optimizer.step()
         self.update_count += 1
         return UpdateMetrics(
@@ -131,6 +142,7 @@ class DQNLearner:
                 "gradient_clip_mode": self.gradient_clip_mode,
                 "initializer": self.initializer,
                 "initialize_target_from_online": self.initialize_target_from_online,
+                "architecture": self.architecture,
                 "metadata": metadata or {},
             },
             path,
@@ -138,6 +150,11 @@ class DQNLearner:
 
     def load(self, path: str | Path, load_optimizer: bool = True) -> dict[str, Any]:
         payload = torch.load(path, map_location=self.device, weights_only=False)
+        saved = payload.get("architecture", "nature")
+        if saved != self.architecture:
+            raise ValueError(
+                f"checkpoint uses the {saved!r} network but this learner is {self.architecture!r}"
+            )
         self.online.load_state_dict(payload["online"])
         self.target.load_state_dict(payload["target"])
         if load_optimizer and "optimizer" in payload:

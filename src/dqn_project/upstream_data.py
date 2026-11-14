@@ -75,6 +75,8 @@ class MaxAndSkipEnv:
             if len(observations) >= 2
             else observations[-1]
         )
+        info = dict(info)
+        info['emulator_frames'] = len(observations)
         return pooled, total_reward, bool(terminated), bool(truncated), info
 
     def close(self) -> None:

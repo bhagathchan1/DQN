@@ -1,0 +1,45 @@
+run:
+  id: breakout_upstream_10M_seed7
+  seed: 7
+environment:
+  id: ALE/Breakout-v5
+  pipeline: upstream
+training:
+  profile: upstream
+  device: auto
+  total_environment_steps: 10000000
+  learning_starts: 10000
+  batch_size: 32
+  gamma: 0.99
+  optimizer: adam
+  learning_rate: 0.0001
+  optimizer_epsilon: 1.0e-06
+  gradient_clip_mode: per_parameter
+  initializer: keras_variance_scaling
+  initialize_target_from_online: false
+  train_frequency: 4
+  target_update_frequency: 1000
+  target_update_mode: environment_step
+  checkpoint_frequency: 0
+  episode_checkpoint_frequency: 1000
+  evaluation_interval_episodes: 1000
+  log_interval_episodes: 100
+  epsilon_start: 1.0
+  epsilon_end: 0.1
+  epsilon_warmup_steps: 10000
+  epsilon_decay_steps: 1000000
+  epsilon_terminal_end: 0.01
+  epsilon_terminal_decay_steps: 25000000
+  clip_rewards: true
+replay:
+  type: uniform
+  capacity: 10000
+  sampling_mode: upstream
+  alpha: 0.6
+  beta_start: 0.4
+  priority_epsilon: 1.0e-06
+evaluation:
+  episodes: 5
+  epsilon: 0.0
+  selection: best
+  max_steps_per_episode: 9000

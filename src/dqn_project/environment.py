@@ -53,6 +53,7 @@ class DQNEnv:
         env: Any,
         frame_stack: int = 4,
         action_repeat: int = 4,
+        noop_max: int = 0,
         preprocessing: str = "pillow",
     ) -> None:
         if frame_stack <= 0 or action_repeat <= 0:
@@ -60,6 +61,9 @@ class DQNEnv:
         self.env = env
         self.frame_stack = frame_stack
         self.action_repeat = action_repeat
+        self.noop_max = noop_max
+        self.rng = np.random.default_rng()
+        self.lives = None
         self.preprocessing = preprocessing
         self.frames: deque[np.ndarray] = deque(maxlen=frame_stack)
 
@@ -72,6 +76,14 @@ class DQNEnv:
 
     def reset(self, **kwargs: Any) -> tuple[np.ndarray, dict[str, Any]]:
         observation, info = self.env.reset(**kwargs)
+        if kwargs.get('seed') is not None:
+            self.rng = np.random.default_rng(kwargs['seed'])
+        if self.noop_max:
+            for _ in range(int(self.rng.integers(1, self.noop_max + 1))):
+                observation, _, terminated, truncated, info = self.env.step(0)
+                if terminated or truncated:
+                    observation, info = self.env.reset()
+        self.lives = info.get('lives')
         processed = preprocess_frame(observation, method=self.preprocessing)
         self.frames.clear()
         self.frames.extend(processed.copy() for _ in range(self.frame_stack))
@@ -82,15 +94,22 @@ class DQNEnv:
         terminated = False
         truncated = False
         recent: list[np.ndarray] = []
+        emulator_frames = 0
         info: dict[str, Any] = {}
         for _ in range(self.action_repeat):
             observation, reward, terminated, truncated, info = self.env.step(action)
             total_reward += float(reward)
+            emulator_frames += int(info.get('emulator_frames', 1))
             recent.append(np.asarray(observation))
             if terminated or truncated:
                 break
         pooled = np.maximum(recent[-1], recent[-2]) if len(recent) >= 2 else recent[-1]
         self.frames.append(preprocess_frame(pooled, method=self.preprocessing))
+        info = dict(info)
+        lives = info.get('lives')
+        info['life_lost'] = lives is not None and self.lives is not None and lives < self.lives
+        info['emulator_frames'] = emulator_frames
+        self.lives = lives
         return self._state(), total_reward, bool(terminated), bool(truncated), info
 
     def _state(self) -> np.ndarray:
@@ -103,6 +122,7 @@ class DQNEnv:
 def make_env(
     env_id: str,
     seed: int | None = None,
+    noop_max: int = 0,
     pipeline: str = "project",
     clip_rewards: bool = False,
     render_mode: str | None = None,
@@ -141,7 +161,7 @@ def make_env(
             env = SignClipRewardEnv(env)
         wrapped = DQNEnv(env, action_repeat=1, preprocessing="opencv")
     elif pipeline == "project":
-        wrapped = DQNEnv(env)
+        wrapped = DQNEnv(env, noop_max=noop_max)
     else:
         env.close()
         raise ValueError("pipeline must be 'project' or 'upstream'")

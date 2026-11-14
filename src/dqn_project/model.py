@@ -6,11 +6,19 @@ import torch
 from torch import nn
 
 
+ARCHITECTURES = ("nature", "dueling")
+
+
 class DQN(nn.Module):
     """DQN for stacked 84x84 grayscale frames.
 
     Inputs may be uint8 in [0, 255] or floating point in [0, 1].
     The output contains one unconstrained Q-value per legal action.
+
+    ``architecture="nature"`` is the Nature 2015 network. ``"dueling"`` keeps the
+    same convolutional trunk but splits the head into a state-value stream V(s)
+    and an advantage stream A(s, a), combined as Q = V + A - mean_a A
+    (Wang et al., 2016).
     """
 
     def __init__(
@@ -18,14 +26,18 @@ class DQN(nn.Module):
         action_count: int,
         input_channels: int = 4,
         initializer: str = "pytorch",
+        architecture: str = "nature",
     ) -> None:
         super().__init__()
         if action_count <= 0:
             raise ValueError("action_count must be positive")
         if input_channels <= 0:
             raise ValueError("input_channels must be positive")
+        if architecture not in ARCHITECTURES:
+            raise ValueError(f"architecture must be one of {ARCHITECTURES}")
         self.action_count = action_count
         self.input_channels = input_channels
+        self.architecture = architecture
         if initializer not in {"pytorch", "keras_variance_scaling"}:
             raise ValueError("unsupported initializer")
         self.initializer = initializer
@@ -37,12 +49,21 @@ class DQN(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU(),
         )
-        self.head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 512),
-            nn.ReLU(),
-            nn.Linear(512, action_count),
-        )
+        if architecture == "nature":
+            # Attribute name kept so existing checkpoints load unchanged.
+            self.head = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(64 * 7 * 7, 512),
+                nn.ReLU(),
+                nn.Linear(512, action_count),
+            )
+        else:
+            self.value = nn.Sequential(
+                nn.Flatten(), nn.Linear(64 * 7 * 7, 512), nn.ReLU(), nn.Linear(512, 1),
+            )
+            self.advantage = nn.Sequential(
+                nn.Flatten(), nn.Linear(64 * 7 * 7, 512), nn.ReLU(), nn.Linear(512, action_count),
+            )
         self.apply(self._initialize_keras if initializer == "keras_variance_scaling" else self._initialize)
 
     @staticmethod
@@ -70,9 +91,14 @@ class DQN(nn.Module):
             raise ValueError(
                 f"expected [batch, {self.input_channels}, 84, 84], got {tuple(states.shape)}"
             )
+        # Use the input contract, not the brightest pixel: dark uint8 frames must
+        # still be normalized, without a GPU-to-host synchronization per forward.
+        byte_input = states.dtype == torch.uint8
         states = states.to(dtype=torch.float32)
-        if not states.is_floating_point():  # pragma: no cover - conversion above is explicit
-            raise TypeError("states must be numeric")
-        if states.numel() and states.detach().max() > 1.0:
+        if byte_input:
             states = states / 255.0
-        return self.head(self.features(states))
+        features = self.features(states)
+        if self.architecture == "nature":
+            return self.head(features)
+        advantage = self.advantage(features)
+        return self.value(features) + advantage - advantage.mean(dim=1, keepdim=True)

@@ -60,6 +60,22 @@ class LearnerTests(unittest.TestCase):
             self.assertEqual(metadata, {"test": True})
             self.assertTrue(all(torch.equal(a, b) for a, b in zip(self.learner.online.parameters(), restored.online.parameters())))
 
+    def test_dueling_update_changes_weights_and_round_trips(self) -> None:
+        torch.manual_seed(4)
+        learner = DQNLearner(action_count=3, architecture="dueling")
+        before = [p.detach().clone() for p in learner.online.parameters()]
+        metrics = learner.update(sample_batch())
+        self.assertTrue(np.isfinite(metrics.loss))
+        self.assertTrue(any(not torch.equal(a, b) for a, b in zip(before, learner.online.parameters())))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "dueling.pt"
+            learner.save(path)
+            restored = DQNLearner(action_count=3, architecture="dueling")
+            restored.load(path)
+            self.assertTrue(all(torch.equal(a, b) for a, b in zip(learner.online.parameters(), restored.online.parameters())))
+            with self.assertRaisesRegex(ValueError, "dueling"):
+                DQNLearner(action_count=3).load(path)
+
     def test_prioritized_replay_is_learner_compatible(self) -> None:
         replay = PrioritizedReplayBuffer(4, seed=5)
         rng = np.random.default_rng(6)

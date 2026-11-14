@@ -24,6 +24,11 @@ class _EndlessEnv:
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_render_mode_is_forwarded(self) -> None:
+        with patch("dqn_project.evaluate.make_env", return_value=_EndlessEnv()) as factory:
+            evaluate_policy(None, "fake", 1, 0.0, 7, max_steps_per_episode=1, render=True)
+            factory.assert_called_once_with("fake", render_mode="human")
+
     def test_episode_cap_is_enforced_and_reported(self) -> None:
         with patch("dqn_project.evaluate.make_env", return_value=_EndlessEnv()):
             result = evaluate_policy(
