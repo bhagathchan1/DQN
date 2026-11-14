@@ -21,10 +21,17 @@ Initialised from the single-player best checkpoints above, then fine-tuned with
 | `pong_two_player/pong_lab_nature_best_learner.pt` | Nature DQN | +21.0 |
 | `pong_two_player/pong_lab_dueling_best_learner.pt` | Dueling DQN | +19.0 |
 
-These are lab `learner.pt` checkpoints (they go in `checkpoints/v0/learner.pt` of a lab session).
+These are lab `learner.pt` checkpoints. The Pong Learning Lab UI lists every `.pt` in
+`pong_two_player/` under **Opponent** in the setup card (the default). Choosing one creates a
+session that imports it, uses its network, and plays at epsilon 0.05 instead of the fresh-model
+1.0; it keeps learning from your games after each match. `dqn-lab --models-dir <folder>` points
+the lab at another folder. Package-version differences (pettingzoo, multi-agent-ale-py) are
+allowed and logged in the session's `events.jsonl`; sides, actions and preprocessing must match.
 Note: in the installed pettingzoo `pong_v3`, `first_0` (lab "human") moves the right paddle and
-`second_0` (DQN) the left one. When you import a model, the lab starts it at epsilon 1.0
-unless the session config sets `epsilon_start`.
+`second_0` (DQN) the left one.
+
+The `pong_single/` checkpoints come from single-player Gymnasium Pong and cannot be imported
+directly; `scripts/train_pong_two_player.py --init` mirrors them into a two-player model.
 
 ## Breakout (10M environment steps, code from `main`)
 

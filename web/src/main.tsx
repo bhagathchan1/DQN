@@ -20,6 +20,7 @@ type Snapshot = {
   comparison?: RecordData | null; history?: RecordData[]; error?: string | null; events_seq?: number
   [key: string]: unknown
 }
+type PretrainedModel = { id: string; label: string; network: string; epsilon?: number }
 type SavedSession = { id: string; status?: string; active_version?: number; network?: string; games?: number; [key: string]: unknown }
 
 const EMPTY: Snapshot = { status: 'no_session' }
@@ -130,6 +131,8 @@ function App() {
   const [durationSetting, setDurationSetting] = useState(120)
   const [updatesSetting, setUpdatesSetting] = useState(450)
   const [networkSetting, setNetworkSetting] = useState('nature')
+  const [pretrained, setPretrained] = useState<PretrainedModel[]>([])
+  const [opponent, setOpponent] = useState('')
   const [seed, setSeed] = useState(7)
   const [setupOpen, setSetupOpen] = useState(false)
   const [chartField, setChartField] = useState('loss')
@@ -164,6 +167,14 @@ function App() {
       setSaved(Array.isArray(value) ? value : value.sessions ?? [])
     } catch { /* Session discovery is retried after the backend reconnects. */ }
   }, [])
+  useEffect(() => {
+    // Trained two-player models shipped with the repository (trained_models/pong_two_player).
+    api<PretrainedModel[]>('/api/pretrained').then(models => {
+      setPretrained(models)
+      if (models.length) { setOpponent(current => current || models[0].id); setNetworkSetting(current => models[0]?.network ?? current) }
+    }).catch(() => { /* Older servers have no trained-model list; fresh sessions still work. */ })
+  }, [])
+  const chosenModel = pretrained.find(model => model.id === opponent)
   useEffect(() => {
     let alive = true
     const poll = async () => {
@@ -226,10 +237,13 @@ function App() {
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setBusy(null) }
   }
-  const newSession = () => void perform('/api/sessions', { config: {
-    match_seconds: durationSetting, updates_per_match: updatesSetting, min_replay: 256,
-    batch_size: 32, replay_capacity: 20000, seed, device: 'auto', network: networkSetting,
-  } }, 'Preparing the model')
+  const newSession = () => void perform('/api/sessions', {
+    config: {
+      match_seconds: durationSetting, updates_per_match: updatesSetting, min_replay: 256,
+      batch_size: 32, replay_capacity: 20000, seed, device: 'auto', network: chosenModel?.network ?? networkSetting,
+    },
+    ...(chosenModel ? { pretrained: chosenModel.id } : {}),
+  }, chosenModel ? 'Loading the trained model' : 'Preparing the model')
   const press = (key: string, held: boolean) => {
     if (held) keys.current.add(key); else keys.current.delete(key)
     const ws = socket.current
@@ -256,7 +270,7 @@ function App() {
       <a className="nav-item active" href="#arena"><Icon name="game" />Play & learn<span className="nav-dot" /></a>
       <a className="nav-item" href="#learning"><Icon name="chart" />Learning monitor</a>
       <a className="nav-item" href="#history"><Icon name="history" />Match history</a>
-      <div className="side-session"><span className="side-label">ACTIVE SESSION</span><strong>{hasSession ? snapshot.id?.slice(0, 20) : 'Your lab is ready'}</strong><p>{hasSession ? 'Experience carries into every next game.' : 'Create a session to begin learning from play.'}</p><button className="side-button" onClick={() => setSetupOpen(!setupOpen)} disabled={playing || learning}><Icon name="plus" size={16} />New / restore session</button></div>
+      <div className="side-session"><span className="side-label">ACTIVE SESSION</span><strong>{hasSession ? snapshot.id?.slice(0, 20) : 'Your lab is ready'}</strong><p>{hasSession ? `${snapshot.origin === 'imported_checkpoint' ? 'Started from a trained model. ' : ''}Experience carries into every next game.` : 'Create a session to begin learning from play.'}</p><button className="side-button" onClick={() => setSetupOpen(!setupOpen)} disabled={playing || learning}><Icon name="plus" size={16} />New / restore session</button></div>
       <div className="side-bottom"><span className="network-dot" />LOCAL EXPERIMENT<div>DQN · Atari Pong</div><p>One game. One learning step.<br />A different opponent next time.</p></div>
     </aside>
 
@@ -265,7 +279,7 @@ function App() {
 
       {(error || snapshot.error || online === false) && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>{online === false ? 'The local engine is not connected.' : 'The experiment needs attention.'}</strong><p>{error ?? snapshot.error ?? 'Start the Pong backend, then this page will reconnect automatically. No game data is being simulated.'}</p></div>{error && <button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button>}</div>}
 
-      {(!hasSession || setupOpen) && <section className="setup-card" aria-labelledby="setup-title"><div className="setup-intro"><span className="pill neutral">START HERE</span><h2 id="setup-title">Meet your first opponent.</h2><p>A fresh DQN starts with random weights. Each completed game adds experience; learning happens after the final whistle.</p></div><div className="setup-fields"><label>Match length<select value={durationSetting} onChange={e => setDurationSetting(Number(e.target.value))}><option value={120}>2 minutes · full demo</option><option value={20}>20 seconds · quick cycle</option><option value={60}>1 minute</option></select></label><label>Updates after a game<select value={updatesSetting} onChange={e => setUpdatesSetting(Number(e.target.value))}><option value={450}>450 updates · recommended</option><option value={128}>128 updates</option><option value={32}>32 updates · quick cycle</option></select></label><label>Network<select value={networkSetting} onChange={e => setNetworkSetting(e.target.value)}><option value="nature">Nature DQN · paper network</option><option value="dueling">Dueling DQN · value + advantage</option></select></label><label className="seed-label">Session seed<input type="number" min="0" max="4294967294" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label><button className="button primary create-button" onClick={newSession} disabled={Boolean(busy) || online === false}><Icon name="plus" size={17} />{busy ?? 'Create session'}</button>{saved.length > 0 && <div className="restore-row"><select aria-label="Saved session" value={selectedSession} onChange={e => setSelectedSession(e.target.value)}><option value="">Restore a saved session…</option>{saved.map(item => <option value={item.id} key={item.id}>{item.id.slice(0, 8)} · {item.network === 'dueling' ? 'Dueling' : 'Nature'}{item.active_version !== undefined ? ` · v${item.active_version}` : ''}{item.games !== undefined ? ` · ${item.games} games` : ''}</option>)}</select><button className="button secondary" disabled={!selectedSession || Boolean(busy)} onClick={() => void perform('/api/sessions', { session_id: selectedSession }, 'Restoring session')}><Icon name="refresh" size={15} />Restore</button></div>}</div></section>}
+      {(!hasSession || setupOpen) && <section className="setup-card" aria-labelledby="setup-title"><div className="setup-intro"><span className="pill neutral">START HERE</span><h2 id="setup-title">Meet your first opponent.</h2><p>{chosenModel ? `${chosenModel.label} plays at ε ${fmt(chosenModel.epsilon ?? 0.05, 2)} and keeps learning from your games after each final whistle.` : 'A fresh DQN starts with random weights. Each completed game adds experience; learning happens after the final whistle.'}</p></div><div className="setup-fields"><label>Match length<select value={durationSetting} onChange={e => setDurationSetting(Number(e.target.value))}><option value={120}>2 minutes · full demo</option><option value={20}>20 seconds · quick cycle</option><option value={60}>1 minute</option></select></label><label>Updates after a game<select value={updatesSetting} onChange={e => setUpdatesSetting(Number(e.target.value))}><option value={450}>450 updates · recommended</option><option value={128}>128 updates</option><option value={32}>32 updates · quick cycle</option></select></label><label>Opponent<select value={opponent} onChange={e => { setOpponent(e.target.value); const model = pretrained.find(item => item.id === e.target.value); if (model) setNetworkSetting(model.network) }}>{pretrained.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}<option value="">Fresh DQN · random weights</option></select></label><label>Network<select value={chosenModel?.network ?? networkSetting} disabled={Boolean(chosenModel)} title={chosenModel ? 'Set by the trained model' : undefined} onChange={e => setNetworkSetting(e.target.value)}><option value="nature">Nature DQN · paper network</option><option value="dueling">Dueling DQN · value + advantage</option></select></label><label className="seed-label">Session seed<input type="number" min="0" max="4294967294" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label><button className="button primary create-button" onClick={newSession} disabled={Boolean(busy) || online === false}><Icon name="plus" size={17} />{busy ?? 'Create session'}</button>{saved.length > 0 && <div className="restore-row"><select aria-label="Saved session" value={selectedSession} onChange={e => setSelectedSession(e.target.value)}><option value="">Restore a saved session…</option>{saved.map(item => <option value={item.id} key={item.id}>{item.id.slice(0, 8)} · {item.network === 'dueling' ? 'Dueling' : 'Nature'}{item.active_version !== undefined ? ` · v${item.active_version}` : ''}{item.games !== undefined ? ` · ${item.games} games` : ''}</option>)}</select><button className="button secondary" disabled={!selectedSession || Boolean(busy)} onClick={() => void perform('/api/sessions', { session_id: selectedSession }, 'Restoring session')}><Icon name="refresh" size={15} />Restore</button></div>}</div></section>}
 
       <div className="journey" aria-label="Experiment cycle">{['Play a match', 'Review the result', 'Train the network', 'Meet the next version'].map((step, index) => <React.Fragment key={step}><div className={index === stage ? 'journey-step current' : 'journey-step'}><span>{String(index+1).padStart(2, '0')}</span>{step}</div>{index < 3 && <span className="journey-connector" />}</React.Fragment>)}</div>
 
@@ -279,7 +293,7 @@ function App() {
         </section>
 
         <section className="learning-card" id="learning" aria-labelledby="learning-title"><div className="card-heading"><div><span className="section-index">02 / UNDER THE HOOD</span><h2 id="learning-title">The learning monitor</h2></div><span className="brain-icon"><Icon name="brain" size={24} /></span></div>
-          <div className="model-banner"><span>ACTIVE MODEL</span><strong>{version(snapshot.active_version)}</strong><small>{snapshot.active_version === 0 ? 'Starting from scratch' : hasSession ? 'Retained across games' : 'Create a session to initialize'}</small></div>
+          <div className="model-banner"><span>ACTIVE MODEL</span><strong>{version(snapshot.active_version)}</strong><small>{snapshot.active_version === 0 ? (snapshot.origin === 'imported_checkpoint' ? 'Trained model, before your games' : 'Starting from scratch') : hasSession ? 'Retained across games' : 'Create a session to initialize'}</small></div>
           <div className="learning-stats"><div><span>Experience replay</span><strong>{fmt(replay, 0)}<small> transitions</small></strong></div><div><span>Exploration ε</span><strong>{fmt(numberOf(snapshot.match?.epsilon, snapshot.epsilon, last.epsilon), 3)}</strong></div></div>
           <div className="training-state"><div><span className={`tiny-dot ${learning ? 'pulse' : ''}`} /><strong>{learning ? 'Updating the Q-network' : status === 'insufficient_data' ? 'A little more experience first' : training ? labels[status] ?? 'Last learning phase' : 'Learning begins after the game'}</strong></div><p>{learning ? `Sampling from ${fmt(replay, 0)} retained transitions.` : status === 'insufficient_data' ? `${fmt(replay, 0)} / ${fmt(minReplay, 0)} sampleable transitions. Keep playing to fill replay.` : training ? `Input ${version(training.input_version)} → ${training.output_version === undefined || training.output_version === null ? 'no new version' : version(training.output_version)}. Actual progress is shown below.` : 'No gradients during play. Completed matches become the next training experience.'}</p><div className="progress-track"><span style={{ width: `${Math.min(100, updates / Math.max(totalUpdates, 1) * 100)}%` }} /></div><div className="progress-label"><span>{fmt(updates, 0)} / {fmt(totalUpdates, 0)} updates</span><span>{training ? `${fmt(training.elapsed_seconds, 1)}s` : 'Not started'}</span></div></div>
           <div className="chart-tabs" aria-label="Learning chart">{[['loss', 'Loss'], ['td_error', 'TD error'], ['mean_q', 'Mean Q']].map(([field, label]) => <button className={chartField === field ? 'selected' : ''} key={field} onClick={() => setChartField(field)}>{label}</button>)}<strong>{fmt(latest?.[chartField], 4)}</strong></div>

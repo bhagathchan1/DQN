@@ -235,6 +235,28 @@ class PongSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'incompatible'):
             self.session({**self.config, 'checkpoint': str(checkpoint)})
 
+    def _exported_checkpoint(self, **spec_changes):
+        source = self.session()
+        payload = torch.load(source.directory / source._checkpoint, weights_only=False)
+        payload['metadata']['environment_spec'] = {**payload['metadata']['environment_spec'], **spec_changes}
+        path = self.root / 'trained.pt'
+        torch.save(payload, path)
+        return path
+
+    def test_trained_checkpoint_imports_across_package_versions(self):
+        checkpoint = self._exported_checkpoint(pettingzoo_version='0.0.1', multi_agent_ale_version='0.0.2')
+        session = self.session({**self.config, 'checkpoint': str(checkpoint),
+                                'epsilon_start': 0.05, 'epsilon_end': 0.05})
+        self.assertEqual(session.origin, 'imported_checkpoint')
+        self.assertIn('pettingzoo_version', session.import_version_drift)
+        session.start_match()
+        self.assertAlmostEqual(session.match['epsilon'], 0.05)
+
+    def test_trained_checkpoint_with_different_protocol_is_rejected(self):
+        checkpoint = self._exported_checkpoint(machine_side='left')
+        with self.assertRaisesRegex(ValueError, 'incompatible'):
+            self.session({**self.config, 'checkpoint': str(checkpoint)})
+
     def test_invalid_config_is_rejected(self):
         with self.assertRaises(ValueError):
             validate_config({'min_replay': 2})

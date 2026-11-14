@@ -62,6 +62,14 @@ def _json(path: Path, data):
     os.replace(temporary, path)
 
 
+_VERSION_KEYS = ('pettingzoo_version', 'multi_agent_ale_version')
+
+
+def _protocol(spec: dict) -> dict:
+    """The parts of an environment spec a policy depends on (sides, actions, preprocessing)."""
+    return {key: value for key, value in _clean(spec).items() if key not in _VERSION_KEYS}
+
+
 def _sha(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open('rb') as stream:
@@ -207,7 +215,9 @@ class PongSession:
                 self._save_replay()
                 self._persist()
                 _json(self.directory / 'config.json', self.config)
-                self._event('session_created', {'origin': self.origin})
+                self._event('session_created', {'origin': self.origin,
+                                                'checkpoint': self.config.get('checkpoint'),
+                                                'version_drift': getattr(self, 'import_version_drift', {})})
             self._state = self.env.reset(seed=self.config['seed'])
             self.latest_state = self._state.copy()
             self._last_frame = self.env.render()
@@ -226,8 +236,14 @@ class PongSession:
     def _import(self, path):
         payload = torch.load(Path(path), map_location='cpu', weights_only=False)
         metadata = payload.get('metadata', {})
-        if metadata.get('environment_spec') != self.spec or payload.get('action_count') != self.env.action_count:
+        saved_spec = metadata.get('environment_spec')
+        # Package versions are provenance, not protocol: a model trained under
+        # pettingzoo 1.27.0 plays the same game under a later patch release.
+        if (not isinstance(saved_spec, dict) or _protocol(saved_spec) != _protocol(self.spec)
+                or payload.get('action_count') != self.env.action_count):
             raise ValueError('Checkpoint is incompatible: two-player environment, side, action map and preprocessing must match.')
+        version_drift = {key: [saved_spec.get(key), self.spec.get(key)] for key in _VERSION_KEYS
+                         if saved_spec.get(key) != self.spec.get(key)}
         if payload.get('architecture', 'nature') != self.config['network']:
             raise ValueError(f"Checkpoint uses the {payload.get('architecture', 'nature')} network; "
                              f"this session uses {self.config['network']}.")
@@ -241,6 +257,7 @@ class PongSession:
             raise ValueError('Imported checkpoint optimizer/discount settings are incompatible.')
         self.learner.load(path, load_optimizer=True)
         self.origin = 'imported_checkpoint'
+        self.import_version_drift = version_drift
 
     def _event(self, kind, data=None):
         self._events_seq += 1

@@ -158,8 +158,9 @@ def _worker(root, commands, updates, replies, cancel):
 
 class PongController:
     """Own the worker; keep snapshots and frame bytes available without polling it."""
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, models_dir: str | Path | None = None):
         self.root = Path(root).resolve()
+        self.models_dir = Path(models_dir).resolve() if models_dir else None
         self.root.mkdir(parents=True, exist_ok=True)
         context = mp.get_context('spawn')
         self.commands = context.Queue()
@@ -262,6 +263,44 @@ class PongController:
         return [{'path': str(p.resolve()), 'label': str(p.relative_to(self.root))}
                 for p in self.root.glob('*/checkpoints/**/learner.pt')]
 
+    def pretrained(self):
+        return discover_pretrained(self.models_dir)
+
+
+PRETRAINED_DIR = Path(__file__).resolve().parents[2] / 'trained_models' / 'pong_two_player'
+# Opponents start from a trained policy, so they should play it, not explore at random.
+PRETRAINED_EPSILON = 0.05
+
+
+def discover_pretrained(directory: Path | None = None):
+    """Two-player lab checkpoints shipped in ``trained_models/pong_two_player``.
+
+    Each ``<name>_best_learner.pt`` may have a ``<name>_args.json`` written by
+    ``scripts/train_pong_two_player.py``; the network is read from it so listing
+    never unpickles a checkpoint. IDs are file stems, never client-supplied paths.
+    """
+    directory = Path(directory or PRETRAINED_DIR)
+    models = []
+    for path in sorted(directory.glob('*.pt')):
+        stem = path.stem
+        name = stem.removesuffix('_best_learner').removesuffix('_learner')
+        args = {}
+        args_path = path.with_name(f'{name}_args.json')
+        if args_path.is_file():
+            try:
+                args = json.loads(args_path.read_text(encoding='utf-8'))
+            except (OSError, ValueError):
+                args = {}
+        network = args.get('network') or ('dueling' if 'dueling' in stem else 'nature')
+        if network not in {'nature', 'dueling'}:
+            continue
+        steps = args.get('steps')
+        detail = f'{steps / 1e6:g}M-step two-player fine-tune' if isinstance(steps, (int, float)) else 'two-player lab model'
+        models.append({'id': stem, 'network': network, 'path': str(path.resolve()),
+                       'label': f"Trained {'Dueling' if network == 'dueling' else 'Nature'} DQN · {detail}",
+                       'epsilon': PRETRAINED_EPSILON})
+    return models
+
     def close(self):
         self.cancel.set()
         if self.process and self.process.is_alive():
@@ -323,6 +362,11 @@ def create_app(root=None, controller=None):
     def checkpoints():
         return owned.checkpoints()
 
+    @app.get('/api/pretrained')
+    def pretrained():
+        # Paths stay on the server; the browser selects a model by its ID.
+        return [{k: v for k, v in model.items() if k != 'path'} for model in owned.pretrained()]
+
     @app.post('/api/sessions')
     async def create(request: Request):
         if owned.snapshot().get('status') in {'playing', 'learning'}:
@@ -338,7 +382,26 @@ def create_app(root=None, controller=None):
             raise HTTPException(422, 'Invalid session ID.')
         if session_id and not (owned.root / session_id / 'session.json').is_file():
             raise HTTPException(404, 'Saved session not found.')
-        return await command('create', {'config': body.get('config'), 'session_id': session_id})
+        config = body.get('config')
+        if config is not None and not isinstance(config, dict):
+            raise HTTPException(422, 'config must be a JSON object.')
+        config = dict(config) if config else None
+        # Checkpoints are unpickled, so only server-known files may be imported.
+        if config and 'checkpoint' in config:
+            allowed = {item['path'] for item in owned.checkpoints()}
+            if config['checkpoint'] not in allowed:
+                raise HTTPException(422, 'Unknown checkpoint; choose a trained model or a saved session.')
+        model_id = body.get('pretrained')
+        if model_id:
+            if session_id:
+                raise HTTPException(422, 'A restored session keeps its own model; do not also choose a trained model.')
+            model = next((item for item in owned.pretrained() if item['id'] == model_id), None)
+            if model is None:
+                raise HTTPException(404, 'Trained model not found.')
+            config = {**(config or {}), 'checkpoint': model['path'], 'network': model['network']}
+            config.setdefault('epsilon_start', model['epsilon'])
+            config.setdefault('epsilon_end', min(model['epsilon'], config['epsilon_start']))
+        return await command('create', {'config': config, 'session_id': session_id})
 
     @app.post('/api/matches')
     async def start():
@@ -436,9 +499,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--data-dir', type=Path)
+    parser.add_argument('--models-dir', type=Path,
+                        help=f'Folder of two-player lab checkpoints (default: {PRETRAINED_DIR})')
     args = parser.parse_args()
     import uvicorn
-    uvicorn.run(create_app(args.data_dir), host='127.0.0.1', port=args.port)
+    controller = None
+    if args.models_dir:
+        project = Path(__file__).resolve().parents[2]
+        controller = PongController(args.data_dir or project / 'experiments' / 'pong_sessions', args.models_dir)
+    uvicorn.run(create_app(args.data_dir, controller=controller), host='127.0.0.1', port=args.port)
 
 
 if __name__ == '__main__':
