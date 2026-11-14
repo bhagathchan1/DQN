@@ -45,3 +45,6 @@ button.nav-item{background:transparent;width:100%;text-align:left;font-family:in
 .settings-list dt{font-size:11px;color:#7a897f}.settings-list dd{margin:0;font-size:12px;font-weight:550;color:#25352c;text-align:right}
 @media(max-width:1180px){.train-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.models-grid{grid-template-columns:1fr}}
 @media(max-width:760px){.game-switch{width:100%}.game-switch button{flex:1 1 140px}.train-steps{grid-template-columns:1fr}.model-row{flex-direction:column}.model-score{text-align:left}}
+.credits{margin-top:18px;padding-top:14px;border-top:1px solid #35483b}.credits>span{display:block;font:9px var(--mono);letter-spacing:1.2px;color:#82998a;margin-bottom:8px}
+.credits ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}.credits li{font-family:'DM Sans',sans-serif;font-size:12px;letter-spacing:0;color:#dbe5dc;font-weight:500}
+footer .footer-credits{font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:0;color:#7f8c80}

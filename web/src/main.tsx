@@ -135,6 +135,7 @@ const breakoutReasons: Record<string, string> = {
   input_timeout: 'Stopped: keyboard connection lost', server_stopped: 'Stopped: server shut down',
 }
 const randomSeed = () => Math.floor(Math.random() * 100000)
+const DEVELOPERS = ['Yashas H M', 'Prabhakar Saurabh', 'Madipally Bhagath Chandra']
 
 function BreakoutView({ online, pongActive }: { online: boolean | null; pongActive: boolean }) {
   const [state, setState] = useState<BreakoutState>({ status: 'idle' })
@@ -468,7 +469,7 @@ function App() {
       <button className={`nav-item ${view === 'breakout' ? 'active' : ''}`} onClick={() => choose('breakout')}><Icon name="grid" />Breakout · take turns{view === 'breakout' && <span className="nav-dot" />}</button>
       <button className={`nav-item ${view === 'models' ? 'active' : ''}`} onClick={() => choose('models')}><Icon name="brain" />Trained models{view === 'models' && <span className="nav-dot" />}</button>
       {view === 'pong' && <div className="side-session"><span className="side-label">ACTIVE SESSION</span><strong>{hasSession ? snapshot.id?.slice(0, 20) : 'Your lab is ready'}</strong><p>{hasSession ? `${snapshot.origin === 'imported_checkpoint' ? 'Started from a trained model. ' : ''}Experience carries into every next game.` : 'Create a session to begin learning from play.'}</p><button className="side-button" onClick={() => setSetupOpen(!setupOpen)} disabled={playing || learning}><Icon name="plus" size={16} />New / restore session</button></div>}
-      <div className="side-bottom"><span className="network-dot" />LOCAL EXPERIMENT<div>DQN · Atari Pong + Breakout</div><p>{view === 'breakout' ? <>Same seed for both players.<br />Compare the scores.</> : view === 'models' ? <>How each opponent<br />learned to play.</> : <>One game. One learning step.<br />A different opponent next time.</>}</p></div>
+      <div className="side-bottom"><span className="network-dot" />LOCAL EXPERIMENT<div>DQN · Atari Pong + Breakout</div><p>{view === 'breakout' ? <>Same seed for both players.<br />Compare the scores.</> : view === 'models' ? <>How each opponent<br />learned to play.</> : <>One game. One learning step.<br />A different opponent next time.</>}</p><div className="credits"><span>DEVELOPED BY</span><ul>{DEVELOPERS.map(name => <li key={name}>{name}</li>)}</ul></div></div>
     </aside>
 
     <main id="top">
@@ -515,7 +516,7 @@ function App() {
         return <React.Fragment key={rowId}><tr><td><span className="match-number">{String(numberOf(row.index, row.match_index) ?? history.length-index).padStart(2, '0')}</span><small>{rowId.slice(0, 18)}</small></td><td><span className="model-chip">{version(row.policy_version)}</span></td><td>{fmt(human)}</td><td>{fmt(machine)}</td><td>{duration(numberOf(row.elapsed_seconds, row.duration_seconds))}</td><td><span className={`result-pill ${!valid ? 'excluded' : machine !== undefined && human !== undefined && machine > human ? 'machine-won' : ''}`}>{result}</span></td><td><button className="row-detail" aria-label={`Show details for match ${rowId}`} onClick={() => setExpandedRow(expandedRow === rowId ? null : rowId)}>{expandedRow === rowId ? '−' : '+'}</button></td></tr>{expandedRow === rowId && <tr className="details-row"><td colSpan={7}><pre>{JSON.stringify(row, null, 2)}</pre></td></tr>}</React.Fragment>
       })}</tbody></table></div> : <div className="history-empty"><span><Icon name="history" size={24} /></span><div><strong>A clean slate.</strong><p>Your matches, model versions and learning cycles will be recorded here.</p></div></div>}</section>
       </>}
-      <footer><span>DEEPQ LEARNING LAB<span className="footer-sep">/</span>AN EXPERIMENT IN DEEP Q-LEARNING</span><span>Real gameplay. Real updates. No annotated data.</span></footer>
+      <footer><span>DEEPQ LEARNING LAB<span className="footer-sep">/</span>AN EXPERIMENT IN DEEP Q-LEARNING</span><span className="footer-credits">Developed by {DEVELOPERS.slice(0, -1).join(', ')} and {DEVELOPERS.at(-1)}</span><span>Real gameplay. Real updates. No annotated data.</span></footer>
     </main>
   </div>
 }
