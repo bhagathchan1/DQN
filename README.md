@@ -183,7 +183,8 @@ reset options are in [`docs/docker.md`](docs/docker.md).
 |---|---|
 | ![Playing Pong against the DQN](docs/showcase/01_pong_live_duel.png) | ![A trained DQN playing Breakout](docs/showcase/03_breakout_dqn_playing.png) |
 
-More screenshots are in [`docs/showcase/`](docs/showcase/).
+More screenshots are in [`docs/showcase/`](docs/showcase/), and a guided tour that explains every part of
+the interface is in [`docs/DeepQ_Learning_Lab_UI_Guide.docx`](docs/DeepQ_Learning_Lab_UI_Guide.docx).
 
 ### Install
 
