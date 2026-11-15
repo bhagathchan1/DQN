@@ -545,7 +545,6 @@ function BreakoutChapter() {
 /* ---------- chapter 8: the models --------------------------------------------------- */
 const MODELS = [
   { game: 'Pong', name: 'Nature DQN', score: '+21.0', unit: 'best test vs hard opponent', time: '4.4 h + 2.3 h', note: 'Pre-trained 10M decisions, fine-tuned 3M in two-player Pong. The 2015 paper’s network.', view: 'pong' as const },
-  { game: 'Pong', name: 'Dueling DQN', score: '+19.0', unit: 'best test vs hard opponent', time: '4.8 h + 2.3 h', note: 'Same training; the network separately estimates “how good is this moment” and “how much better is each button”.', view: 'pong' as const },
   { game: 'Breakout', name: 'Uniform replay', score: '46.6', unit: 'training average, last 100 games', time: '6.3 h', note: '10M decisions, 200k-moment memory sampled evenly.', view: 'breakout' as const },
   { game: 'Breakout', name: 'Prioritized replay', score: '29.9', unit: 'training average, last 100 games', time: '7.2 h', note: '10M decisions; surprising moments are replayed more often.', view: 'breakout' as const },
   { game: 'Breakout', name: 'Upstream setup', score: '12.9', unit: 'training average per life', time: '6.6 h', note: '10M decisions with the reference code’s settings (Adam, 10k memory).', view: 'breakout' as const },

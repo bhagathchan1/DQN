@@ -105,3 +105,29 @@ class ServerTests(unittest.TestCase):
         self.assertIn(['up', 'fire'], self.control.inputs)
         self.assertIn('focus_lost', self.control.aborts)
         self.assertIn('disconnected', self.control.aborts)
+
+
+class PublicModeTests(unittest.TestCase):
+    """An online deployment answers any host name but only its own pages."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.control = FakeController(self.temp.name)
+        self.space = 'https://team-deepq.hf.space'
+        self.client = TestClient(create_app(controller=self.control, public=True), base_url=self.space)
+        self.local = TestClient(create_app(controller=FakeController(self.temp.name)), base_url=self.space)
+    def tearDown(self):
+        self.client.close()
+        self.local.close()
+        self.temp.cleanup()
+    def test_public_host_served_only_when_public(self):
+        self.assertEqual(self.client.get('/api/health').status_code, 200)
+        self.assertEqual(self.local.get('/api/health').status_code, 403)
+    def test_same_site_origin_allowed_other_sites_refused(self):
+        self.assertEqual(self.client.get('/api/session', headers={'origin': self.space}).status_code, 200)
+        self.assertEqual(self.client.get('/api/session', headers={'origin': 'https://evil.example'}).status_code, 403)
+    def test_websocket_requires_same_site_origin(self):
+        with self.client.websocket_connect('wss://team-deepq.hf.space/ws/play', headers={'origin': self.space}) as websocket:
+            websocket.send_json({'keys': []})
+        with self.assertRaises(Exception):
+            with self.client.websocket_connect('wss://team-deepq.hf.space/ws/play', headers={'origin': 'https://evil.example'}) as websocket:
+                websocket.receive_json()

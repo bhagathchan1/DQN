@@ -8,6 +8,7 @@ import copy
 import io
 import json
 import multiprocessing as mp
+import os
 import queue
 import re
 import threading
@@ -313,7 +314,9 @@ def discover_pretrained(directory: Path | None = None):
     return models
 
 
-def create_app(root=None, controller=None, breakout=None):
+def create_app(root=None, controller=None, breakout=None, public=False):
+    """Build the app. ``public`` serves any host name (for example a Hugging Face Space)
+    while still refusing pages from other sites: an Origin must match the requested host."""
     from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -337,13 +340,22 @@ def create_app(root=None, controller=None, breakout=None):
     app.state.controller = owned
     app.state.breakout = arena
 
-    def local_origin(origin):
-        return not origin or urlparse(origin).hostname in {'127.0.0.1', 'localhost', '::1'}
+    local_hosts = {'127.0.0.1', 'localhost', '::1'}
+
+    def local_origin(origin, host=None):
+        if not origin:
+            return True
+        name = urlparse(origin).hostname
+        # Public mode: only the page this server itself serves may drive it.
+        return name in local_hosts or (public and name is not None and name == host)
 
     @app.middleware('http')
     async def origin_guard(request: Request, call_next):
-        if request.url.hostname not in {'127.0.0.1', 'localhost', '::1', 'testserver'} or not local_origin(request.headers.get('origin')):
+        host = request.url.hostname
+        if not public and host not in local_hosts | {'testserver'}:
             return Response('This server accepts local requests only.', status_code=403)
+        if not local_origin(request.headers.get('origin'), host):
+            return Response('Requests from other sites are refused.', status_code=403)
         return await call_next(request)
 
     async def command(action, payload=None):
@@ -464,7 +476,7 @@ def create_app(root=None, controller=None, breakout=None):
 
     @app.websocket('/ws/play')
     async def play(websocket: WebSocket):
-        if not local_origin(websocket.headers.get('origin')):
+        if not local_origin(websocket.headers.get('origin'), websocket.url.hostname):
             await websocket.close(code=1008)
             return
         await websocket.accept()
@@ -564,7 +576,7 @@ def create_app(root=None, controller=None, breakout=None):
 
     @app.websocket('/ws/breakout')
     async def breakout_keys(websocket: WebSocket):
-        if not local_origin(websocket.headers.get('origin')):
+        if not local_origin(websocket.headers.get('origin'), websocket.url.hostname):
             await websocket.close(code=1008)
             return
         await websocket.accept()
@@ -595,11 +607,14 @@ def create_app(root=None, controller=None, breakout=None):
         if not candidate.is_relative_to(dist.resolve()):
             raise HTTPException(404)
         if candidate.is_file():
-            return FileResponse(candidate)
+            # The page itself is never cached (its asset names change on every build),
+            # so reloading an open tab always picks up the latest UI.
+            no_cache = {'Cache-Control': 'no-cache'} if candidate.name == 'index.html' else None
+            return FileResponse(candidate, headers=no_cache)
         if path.startswith(('api/', 'ws/')):
             raise HTTPException(404)
         if (dist / 'index.html').is_file():
-            return FileResponse(dist / 'index.html')
+            return FileResponse(dist / 'index.html', headers={'Cache-Control': 'no-cache'})
         return Response('Build the UI first: cd web && npm install && npm run build', status_code=503)
 
     return app
@@ -607,7 +622,11 @@ def create_app(root=None, controller=None, breakout=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', 8765)))
+    parser.add_argument('--host', default=os.environ.get('DQN_LAB_HOST', '127.0.0.1'),
+                        help='Interface to listen on; 0.0.0.0 inside a container')
+    parser.add_argument('--public', action='store_true', default=os.environ.get('DQN_LAB_PUBLIC') == '1',
+                        help='Serve any host name (for an online deployment such as a Hugging Face Space)')
     parser.add_argument('--data-dir', type=Path)
     parser.add_argument('--models-dir', type=Path,
                         help=f'Folder of two-player lab checkpoints (default: {PRETRAINED_DIR})')
@@ -617,7 +636,8 @@ def main():
     if args.models_dir:
         project = Path(__file__).resolve().parents[2]
         controller = PongController(args.data_dir or project / 'experiments' / 'pong_sessions', args.models_dir)
-    uvicorn.run(create_app(args.data_dir, controller=controller), host='127.0.0.1', port=args.port)
+    uvicorn.run(create_app(args.data_dir, controller=controller, public=args.public), host=args.host, port=args.port,
+                proxy_headers=args.public, forwarded_allow_ips='*' if args.public else None)
 
 
 if __name__ == '__main__':

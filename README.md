@@ -238,6 +238,20 @@ dqn-lab                             # Linux / macOS, after pip install -e ".[env
 The full setup, controls, troubleshooting and design status are in
 [`docs/pong_learning_lab.md`](docs/pong_learning_lab.md).
 
+#### Online (Hugging Face Spaces or any Docker host)
+
+The same lab runs as a Hugging Face Docker Space (CPU; needs a PRO subscription) or on any
+Docker host. The `Dockerfile` builds the UI
+and starts the server in public mode; one script uploads the code and trained models:
+
+```bash
+wsl --cd "$PWD" ~/.venvs/dqn-lab/bin/hf auth login
+wsl --cd "$PWD" ~/.venvs/dqn-lab/bin/python scripts/deploy_hf_space.py <username>/deepq-learning-lab
+```
+
+Step-by-step instructions and the free tier's limits are in
+[`docs/deploy_huggingface.md`](docs/deploy_huggingface.md).
+
 ### Tests
 
 ```bash
@@ -287,6 +301,7 @@ Pull requests should target `main`. The feature branches are kept for history.
 | [`docs/architecture_notes.md`](docs/architecture_notes.md) | Architecture notes |
 | [`docs/runtime_validation.md`](docs/runtime_validation.md) | Runtime validation records |
 | [`docs/pong_learning_lab.md`](docs/pong_learning_lab.md) | DeepQ Learning Lab (Pong mode): setup, controls, design and status |
+| [`docs/deploy_huggingface.md`](docs/deploy_huggingface.md) | Putting the lab online as a free Hugging Face Space |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`REQUIREMENTS.md`](REQUIREMENTS.md) | DeepQ Learning Lab (Pong mode) architecture and requirements |
 | [`modules/README.md`](modules/README.md) | Team module allocation and handoffs |
 

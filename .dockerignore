@@ -1,0 +1,13 @@
+# Only src/, trained_models/, web/ and the packaging files go into the image.
+*
+!Dockerfile
+!pyproject.toml
+!README.md
+!src/
+!trained_models/
+!web/
+web/node_modules/
+web/dist/
+**/__pycache__/
+**/*.egg-info/
+web/*.tsbuildinfo

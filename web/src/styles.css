@@ -179,3 +179,5 @@ footer .footer-credits{font-family:'DM Sans',sans-serif;font-size:11px;letter-sp
 .tx-facts{margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:9px;font-size:12.5px;line-height:1.6;color:#3d4d43}.tx-facts b{color:#1b2c23}
 .tx-recipe table{font-size:12px}.tx-recipe th i{display:inline-block;width:12px;height:2px;border-radius:2px;margin-right:7px;vertical-align:middle}
 .tx-recipe td:first-child{font-weight:600;color:#1b2c23;white-space:nowrap}.tx-recipe td.differs{background:#fff4e9;color:#7a3f1c}.tx-recipe tr.tx-sum td{background:#f6f8f1}
+
+.winner-overlay.stopped .winner-badge{background:#8a6d3b}.winner-overlay.stopped h3{color:#6b4f1d}

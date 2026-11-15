@@ -102,27 +102,38 @@ const randomSeed = () => Math.floor(Math.random() * 100000)
 
 /* ---------- end-of-game announcement -------------------------------------------- */
 type Announcement = {
-  kind: 'result' | 'turn'; winner?: 'human' | 'machine' | 'draw'
+  kind: 'result' | 'turn' | 'stopped'; winner?: 'human' | 'machine' | 'draw'
   human?: number; machine?: number; title?: string; detail?: string; scoreLabel?: string
 }
 const CONFETTI = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100']
+const STOP_REASONS: Record<string, string> = {
+  focus_lost: 'The game tab was hidden or minimised, so the match stopped.',
+  input_timeout: 'The keyboard connection went quiet for more than half a second.',
+  disconnected: 'The connection to the game closed (for example, the page was reloaded).',
+  invalid_throughput: 'The game ran too slowly to be fair, so it was stopped.',
+  control_error: 'A control error stopped the match.',
+  server_stopped: 'The lab server was shut down.',
+}
+/** A stop the player did not choose deserves an explanation; Stop / Esc (reason "aborted") does not. */
+const explainStop = (reason: unknown) => typeof reason === 'string' && reason !== 'aborted'
+  ? STOP_REASONS[reason] ?? `The match stopped (${reason.replaceAll('_', ' ')}).` : null
 function WinnerOverlay({ announcement, onClose }: { announcement: Announcement; onClose: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, announcement.kind === 'turn' ? 4500 : 7000)
+    const timer = setTimeout(onClose, announcement.kind === 'result' ? 9000 : 8000)
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape' || event.key === 'Enter') onClose() }
     window.addEventListener('keydown', key)
     return () => { clearTimeout(timer); window.removeEventListener('keydown', key) }
   }, [announcement, onClose])
   const { kind, winner, human, machine } = announcement
-  const variant = kind === 'turn' ? 'turn' : winner ?? 'draw'
-  const headline = kind === 'turn' ? announcement.title : winner === 'human' ? 'You win!' : winner === 'machine' ? 'The machine wins!' : 'It’s a draw!'
-  const kicker = kind === 'turn' ? 'ROUND COMPLETE' : winner === 'human' ? 'HUMAN VICTORY' : winner === 'machine' ? 'DEEP Q-NETWORK VICTORY' : 'DEAD EVEN'
+  const variant = kind === 'result' ? winner ?? 'draw' : kind
+  const headline = kind !== 'result' ? announcement.title : winner === 'human' ? 'You win!' : winner === 'machine' ? 'The machine wins!' : 'It’s a draw!'
+  const kicker = kind === 'turn' ? 'ROUND COMPLETE' : kind === 'stopped' ? 'STOPPED EARLY · NOT COUNTED' : winner === 'human' ? 'HUMAN VICTORY' : winner === 'machine' ? 'DEEP Q-NETWORK VICTORY' : 'DEAD EVEN'
   const message = announcement.detail ?? (winner === 'human' ? 'You outscored the Deep Q-Network this time.' : winner === 'machine' ? 'The network outscored you. It learns from every game, so try again!' : 'Neither side could pull ahead.')
   return <div className={`winner-overlay ${variant}`} role="status" aria-live="assertive" onClick={onClose}>
     {variant === 'human' && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, background: CONFETTI[i % CONFETTI.length], animationDelay: `${(i % 9) * 0.09}s`, animationDuration: `${1.9 + (i % 5) * 0.25}s`, transform: `rotate(${(i * 47) % 360}deg)` }} />)}</div>}
     {variant === 'machine' && <div className="scanlines" aria-hidden="true" />}
     <div className="winner-card" onClick={event => event.stopPropagation()}>
-      <span className="winner-badge" aria-hidden="true">{variant === 'human' ? <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H4a3 3 0 0 0 3 4m10-4h3a3 3 0 0 1-3 4" /></svg> : variant === 'machine' ? <b>Q</b> : variant === 'turn' ? <Icon name="check" size={28} /> : <b>=</b>}</span>
+      <span className="winner-badge" aria-hidden="true">{variant === 'human' ? <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H4a3 3 0 0 0 3 4m10-4h3a3 3 0 0 1-3 4" /></svg> : variant === 'machine' ? <b>Q</b> : variant === 'turn' ? <Icon name="check" size={28} /> : variant === 'stopped' ? <Icon name="stop" size={26} /> : <b>=</b>}</span>
       <small>{kicker}</small>
       <h3>{headline}</h3>
       {(human !== undefined || machine !== undefined) && <div className="winner-score">
@@ -131,7 +142,7 @@ function WinnerOverlay({ announcement, onClose }: { announcement: Announcement; 
         {machine !== undefined && <div className={winner === 'machine' ? 'lead' : ''}><span>DQN</span><b>{fmt(machine, 0)}</b></div>}
       </div>}
       <p>{message}</p>
-      <button className="button primary" onClick={onClose}>{kind === 'turn' ? 'Got it' : 'Continue'}</button>
+      <button className="button primary" onClick={onClose}>{kind === 'result' ? 'Continue' : 'Got it'}</button>
     </div>
   </div>
 }
@@ -167,6 +178,12 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
           : { kind: 'turn', title: 'The DQN has played', machine: score, detail: `Play your own round on seed ${state.seed} to see who wins.` })
       }
     }
+    const stop = lastRound.current && state.status === 'finished' && !state.completed ? explainStop(state.reason) : null
+    if (stop) {
+      const score = numberOf(state.score) ?? 0
+      setAnnouncement({ kind: 'stopped', title: 'Round stopped early', ...(lastRound.current?.mode === 'human' ? { human: score } : { machine: score }),
+        detail: `${stop} This round is not counted. Start it again when you are ready.` })
+    }
     lastRound.current = state.status === 'playing' ? { mode: state.mode } : null
   // Only the status change matters; the rest of the state is read at that moment.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,14 +217,15 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
       if (event.key === 'Escape') { event.preventDefault(); void stop() }
     }
     const up = (event: KeyboardEvent) => { const key = keyName(event.key); if (key) { event.preventDefault(); keys.current.delete(key); send() } }
+    const letGo = () => { keys.current.clear(); send() }
     const visibility = () => { if (document.hidden) release() }
     window.addEventListener('keydown', down); window.addEventListener('keyup', up)
-    window.addEventListener('blur', release); document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('blur', letGo); document.addEventListener('visibilitychange', visibility)
     const heartbeat = setInterval(() => { if (!blurred) send() }, 100)
     return () => {
       clearInterval(heartbeat); keys.current.clear()
       window.removeEventListener('keydown', down); window.removeEventListener('keyup', up)
-      window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('blur', letGo); document.removeEventListener('visibilitychange', visibility)
       ws.close(); if (socket.current === ws) socket.current = null
     }
   // A socket belongs to one human round.
@@ -332,6 +350,12 @@ function App() {
     // Once per finished match: stopped or aborted matches (valid = false) are not announced.
     const result = recordOf(snapshot.last_result)
     const id = textOf(result.id)
+    const stop = result.status === 'aborted' || result.status === 'invalid' ? explainStop(result.reason) : null
+    if (wasPlaying.current && !playing && stop && id && announced.current !== id) {
+      announced.current = id
+      setAnnouncement({ kind: 'stopped', title: 'Match stopped early', human: numberOf(result.human_return), machine: numberOf(result.machine_return),
+        detail: `${stop} Stopped matches do not count and the network does not learn from them. Press Start match to play again.` })
+    }
     if (wasPlaying.current && !playing && result.status === 'completed' && id && announced.current !== id) {
       announced.current = id
       const human = numberOf(result.human_return) ?? 0, machine = numberOf(result.machine_return) ?? 0
@@ -394,14 +418,17 @@ function App() {
       if (event.key === 'Escape') { event.preventDefault(); void perform('/api/matches/abort', {}, 'Stopping match') }
     }
     const up = (event: KeyboardEvent) => { const key = keyName(event.key); if (key) { event.preventDefault(); keys.current.delete(key); send() } }
+    // Clicking another window only lets go of the paddle (the match continues);
+    // hiding the tab stops it, because the browser then slows the key heartbeat.
+    const letGo = () => { keys.current.clear(); send() }
     const visibility = () => { if (document.hidden) release() }
     window.addEventListener('keydown', down); window.addEventListener('keyup', up)
-    window.addEventListener('blur', release); document.addEventListener('visibilitychange', visibility)
+    window.addEventListener('blur', letGo); document.addEventListener('visibilitychange', visibility)
     const heartbeat = setInterval(() => { if (!blurred) send() }, 100)
     return () => {
       clearInterval(heartbeat); keys.current.clear()
       window.removeEventListener('keydown', down); window.removeEventListener('keyup', up)
-      window.removeEventListener('blur', release); document.removeEventListener('visibilitychange', visibility)
+      window.removeEventListener('blur', letGo); document.removeEventListener('visibilitychange', visibility)
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ keys: [] }))
       ws.close(); if (socket.current === ws) socket.current = null
     }
