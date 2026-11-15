@@ -1,0 +1,17 @@
+# Optional NVIDIA GPU: Pong learning between matches runs on the GPU.
+# Needs an NVIDIA driver and the NVIDIA Container Toolkit (Docker Desktop on
+# Windows supports this through WSL2).
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  lab:
+    image: deepq-learning-lab:gpu
+    build:
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu126
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -1,4 +1,5 @@
-"""Local Pong Learning Lab server, with one isolated, long-lived session process."""
+"""Local DeepQ Learning Lab server: live Pong against a learning DQN in one isolated,
+long-lived session process, and turn-based Breakout against trained DQNs."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +8,7 @@ import copy
 import io
 import json
 import multiprocessing as mp
+import os
 import queue
 import re
 import threading
@@ -266,6 +268,16 @@ class PongController:
     def pretrained(self):
         return discover_pretrained(self.models_dir)
 
+    def close(self):
+        self.cancel.set()
+        if self.process and self.process.is_alive():
+            self.commands.put({'action': 'shutdown'})
+            self.process.join(timeout=8)
+            if self.process.is_alive():
+                self.process.terminate()
+                self.process.join(timeout=3)
+        self._closed = True
+
 
 PRETRAINED_DIR = Path(__file__).resolve().parents[2] / 'trained_models' / 'pong_two_player'
 # Opponents start from a trained policy, so they should play it, not explore at random.
@@ -301,18 +313,10 @@ def discover_pretrained(directory: Path | None = None):
                        'epsilon': PRETRAINED_EPSILON})
     return models
 
-    def close(self):
-        self.cancel.set()
-        if self.process and self.process.is_alive():
-            self.commands.put({'action': 'shutdown'})
-            self.process.join(timeout=8)
-            if self.process.is_alive():
-                self.process.terminate()
-                self.process.join(timeout=3)
-        self._closed = True
 
-
-def create_app(root=None, controller=None):
+def create_app(root=None, controller=None, breakout=None, public=False):
+    """Build the app. ``public`` serves any host name (for example a Hugging Face Space)
+    while still refusing pages from other sites: an Origin must match the requested host."""
     from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, Response, StreamingResponse
 
@@ -320,22 +324,38 @@ def create_app(root=None, controller=None):
     globals().update(Request=Request, WebSocket=WebSocket)
     project = Path(__file__).resolve().parents[2]
     owned = controller or PongController(root or project / 'experiments' / 'pong_sessions')
+    from .breakout_arena import BreakoutArena, safe_model_id
+    arena = breakout or BreakoutArena(project / 'experiments' / 'breakout_arena' / 'scores.csv')
 
     @asynccontextmanager
     async def lifespan(app):
+        # Read the training curves once in the background so the training page opens instantly.
+        from .training_curves import load_curves
+        threading.Thread(target=load_curves, name='warm-curves', daemon=True).start()
         yield
+        await asyncio.to_thread(arena.close)
         await asyncio.to_thread(owned.close)
 
-    app = FastAPI(title='Pong Learning Lab', lifespan=lifespan)
+    app = FastAPI(title='DeepQ Learning Lab', lifespan=lifespan)
     app.state.controller = owned
+    app.state.breakout = arena
 
-    def local_origin(origin):
-        return not origin or urlparse(origin).hostname in {'127.0.0.1', 'localhost', '::1'}
+    local_hosts = {'127.0.0.1', 'localhost', '::1'}
+
+    def local_origin(origin, host=None):
+        if not origin:
+            return True
+        name = urlparse(origin).hostname
+        # Public mode: only the page this server itself serves may drive it.
+        return name in local_hosts or (public and name is not None and name == host)
 
     @app.middleware('http')
     async def origin_guard(request: Request, call_next):
-        if request.url.hostname not in {'127.0.0.1', 'localhost', '::1', 'testserver'} or not local_origin(request.headers.get('origin')):
+        host = request.url.hostname
+        if not public and host not in local_hosts | {'testserver'}:
             return Response('This server accepts local requests only.', status_code=403)
+        if not local_origin(request.headers.get('origin'), host):
+            return Response('Requests from other sites are refused.', status_code=403)
         return await call_next(request)
 
     async def command(action, payload=None):
@@ -405,6 +425,8 @@ def create_app(root=None, controller=None):
 
     @app.post('/api/matches')
     async def start():
+        if arena.playing():
+            raise HTTPException(409, 'A Breakout round is running; finish or stop it before playing Pong.')
         return await command('start')
 
     @app.post('/api/matches/abort')
@@ -454,7 +476,7 @@ def create_app(root=None, controller=None):
 
     @app.websocket('/ws/play')
     async def play(websocket: WebSocket):
-        if not local_origin(websocket.headers.get('origin')):
+        if not local_origin(websocket.headers.get('origin'), websocket.url.hostname):
             await websocket.close(code=1008)
             return
         await websocket.accept()
@@ -477,6 +499,106 @@ def create_app(root=None, controller=None):
         finally:
             owned.stop_input('disconnected')
 
+    @app.get('/api/training/curves')
+    def training_curves():
+        # Smoothed, thinned learning curves of the shipped models (read once, cached).
+        from .training_curves import load_curves
+        return load_curves()
+
+    @app.get('/api/training/experience')
+    async def training_experience(game: str = 'breakout', policy: str = 'trained', seed: int = 7):
+        # Real transitions (4 frames, button, reward, next frame), as replay memory stores them.
+        from .training_data import sample_experience
+        try:
+            return await asyncio.to_thread(sample_experience, game, policy, seed)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get('/api/training/runs')
+    def training_runs():
+        from .training_data import list_runs
+        return list_runs()
+
+    @app.get('/api/training/records')
+    async def training_records(run: str, offset: int = 0, limit: int = 50):
+        from .training_data import records
+        try:
+            return await asyncio.to_thread(records, run, offset, limit)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get('/api/training/records/{run}.csv')
+    def training_records_csv(run: str):
+        from .training_data import run_path
+        try:
+            path = run_path(run)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return FileResponse(path, media_type='text/csv', filename=f'{run}_training_log.csv')
+
+    # ----- Breakout: take turns with a trained DQN on the same seed ---------------
+    @app.get('/api/breakout/models')
+    def breakout_models():
+        return [{k: v for k, v in model.items() if k != 'path'} for model in arena.models()]
+
+    @app.get('/api/breakout/state')
+    def breakout_state():
+        return arena.snapshot()
+
+    @app.post('/api/breakout/rounds')
+    async def breakout_start(request: Request):
+        try:
+            body = await request.json()
+        except ValueError as exc:
+            raise HTTPException(422, 'Expected a JSON object.') from exc
+        if not isinstance(body, dict):
+            raise HTTPException(422, 'Expected a JSON object.')
+        model_id = body.get('model')
+        if model_id is not None and not safe_model_id(model_id):
+            raise HTTPException(422, 'Invalid model ID.')
+        if owned.snapshot().get('status') in {'playing', 'learning'}:
+            raise HTTPException(409, 'A Pong match or learning phase is running; finish it before playing Breakout.')
+        try:
+            return await asyncio.to_thread(arena.start, body.get('mode'), body.get('seed'), model_id,
+                                           body.get('speed', 1))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post('/api/breakout/abort')
+    async def breakout_abort():
+        return await asyncio.to_thread(arena.abort, 'aborted')
+
+    @app.get('/api/breakout/frame.jpg')
+    def breakout_frame():
+        if arena.frame_bytes is None:
+            return Response(status_code=204)
+        return Response(arena.frame_bytes, media_type='image/jpeg', headers={'Cache-Control': 'no-store'})
+
+    @app.websocket('/ws/breakout')
+    async def breakout_keys(websocket: WebSocket):
+        if not local_origin(websocket.headers.get('origin'), websocket.url.hostname):
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        try:
+            while True:
+                message = await websocket.receive_json()
+                if not isinstance(message, dict):
+                    await websocket.close(code=1008)
+                    break
+                if message.get('blur'):
+                    # Leaving the tab ends your round; a DQN round keeps playing.
+                    if arena.snapshot().get('mode') == 'human':
+                        await asyncio.to_thread(arena.abort, 'focus_lost')
+                    continue
+                keys = message.get('keys', [])
+                if not isinstance(keys, list) or len(keys) > 3 or any(key not in {'left', 'right', 'fire'} for key in keys):
+                    await websocket.close(code=1008)
+                    break
+                arena.set_keys(keys)
+        except (WebSocketDisconnect, ValueError):
+            pass
+
     dist = project / 'web' / 'dist'
 
     @app.get('/{path:path}')
@@ -485,11 +607,14 @@ def create_app(root=None, controller=None):
         if not candidate.is_relative_to(dist.resolve()):
             raise HTTPException(404)
         if candidate.is_file():
-            return FileResponse(candidate)
+            # The page itself is never cached (its asset names change on every build),
+            # so reloading an open tab always picks up the latest UI.
+            no_cache = {'Cache-Control': 'no-cache'} if candidate.name == 'index.html' else None
+            return FileResponse(candidate, headers=no_cache)
         if path.startswith(('api/', 'ws/')):
             raise HTTPException(404)
         if (dist / 'index.html').is_file():
-            return FileResponse(dist / 'index.html')
+            return FileResponse(dist / 'index.html', headers={'Cache-Control': 'no-cache'})
         return Response('Build the UI first: cd web && npm install && npm run build', status_code=503)
 
     return app
@@ -497,7 +622,11 @@ def create_app(root=None, controller=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', 8765)))
+    parser.add_argument('--host', default=os.environ.get('DQN_LAB_HOST', '127.0.0.1'),
+                        help='Interface to listen on; 0.0.0.0 inside a container')
+    parser.add_argument('--public', action='store_true', default=os.environ.get('DQN_LAB_PUBLIC') == '1',
+                        help='Serve any host name (for an online deployment such as a Hugging Face Space)')
     parser.add_argument('--data-dir', type=Path)
     parser.add_argument('--models-dir', type=Path,
                         help=f'Folder of two-player lab checkpoints (default: {PRETRAINED_DIR})')
@@ -507,7 +636,8 @@ def main():
     if args.models_dir:
         project = Path(__file__).resolve().parents[2]
         controller = PongController(args.data_dir or project / 'experiments' / 'pong_sessions', args.models_dir)
-    uvicorn.run(create_app(args.data_dir, controller=controller), host='127.0.0.1', port=args.port)
+    uvicorn.run(create_app(args.data_dir, controller=controller, public=args.public), host=args.host, port=args.port,
+                proxy_headers=args.public, forwarded_allow_ips='*' if args.public else None)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,16 @@
+# DeepQ Learning Lab in one command:
+#   docker compose up --build        then open http://localhost:8765
+# Stop with Ctrl+C (or `docker compose down`). Pong sessions and Breakout scores
+# are kept in the "lab-data" volume between runs.
+services:
+  lab:
+    build: .
+    image: deepq-learning-lab
+    ports:
+      - "${LAB_PORT:-8765}:7860"
+    volumes:
+      - lab-data:/app/experiments
+    restart: unless-stopped
+
+volumes:
+  lab-data:

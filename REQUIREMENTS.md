@@ -12,7 +12,7 @@ This file defines behavior and acceptance, not package installation dependencies
 | Area | Proposed decision |
 | --- | --- |
 | Game | Atari Pong with simultaneous human and machine players |
-| Game boundary | Environment termination or 120 seconds simulation time; a point is not a game |
+| Game boundary | Environment termination or 30 seconds simulation time; a point is not a game |
 | Main loop | Play -> result/compare -> automatic learning -> summary -> Play again |
 | Training | Vanilla DQN, machine transitions, cumulative uniform replay, updates after game only |
 | Learning budget | 450 updates, batch 32, minimum 256 sampleable transitions |

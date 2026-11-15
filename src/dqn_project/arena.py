@@ -71,6 +71,8 @@ class ArenaRound:
         action = (select_action(self.network, self.state, self.env.action_space.n,
                                 self.epsilon, self.rng, 'cpu') if self.mode == 'ai' else human_action)
         self.state, reward, terminated, truncated, info = self.env.step(action)
+        # The last transition, as a DQN would store it (used to show real training data).
+        self.last_action, self.last_reward = int(action), float(reward)
         self.score += reward
         self.steps += 1
         self.frames += info['emulator_frames']
@@ -85,6 +87,13 @@ class ArenaRound:
 
     def frame(self):
         return self.env.env.render()
+
+    def lives(self):
+        """Remaining lives from the emulator, or None if the game does not report them."""
+        try:
+            return int(self.env.env.unwrapped.ale.lives())
+        except Exception:  # noqa: BLE001 - informational only
+            return None
 
     def result(self):
         return dict(timestamp_utc=datetime.now(timezone.utc).isoformat(), game=self.env_id,
