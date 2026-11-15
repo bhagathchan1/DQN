@@ -1,7 +1,7 @@
 # DeepQ Learning Lab as one container: build the web UI, then run the Python lab
-# server on CPU. Used by the Hugging Face Space (see docs/deploy_huggingface.md),
-# and works with plain Docker too:
-#   docker build -t deepq-lab . && docker run -p 7860:7860 deepq-lab
+# server. Easiest: `docker compose up --build`, then open http://localhost:8765
+# (see docs/docker.md). Plain Docker:
+#   docker build -t deepq-lab . && docker run -p 8765:7860 deepq-lab
 
 # ---- 1. Web UI -------------------------------------------------------------
 FROM node:22-slim AS web
@@ -23,8 +23,10 @@ RUN apt-get update \
 RUN useradd -m -u 1000 user
 WORKDIR /app
 
-# The CPU build of PyTorch is far smaller than the default CUDA one.
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# The CPU build of PyTorch is far smaller than the CUDA one. For an NVIDIA GPU, build
+# with --build-arg TORCH_INDEX=https://download.pytorch.org/whl/cu126 (see docker-compose.gpu.yml).
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch --index-url "$TORCH_INDEX"
 
 # Dependencies first, so code changes do not reinstall them.
 COPY pyproject.toml README.md ./
