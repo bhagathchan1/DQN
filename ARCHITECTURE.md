@@ -19,7 +19,7 @@ defines acceptance; [README.md](README.md) is the project entry point.
 6. Repeat with the same learner and accumulated experience, building a game history.
 
 For this proposal, **one game means a full match**, ending on the environment's
-termination or a configurable simulation-time cap, proposed default 120 seconds.
+termination or a configurable simulation-time cap, default 30 seconds.
 A point or rally does not trigger training. A time-capped, otherwise valid match
 is eligible for learning; an aborted or invalid match is not.
 
@@ -182,7 +182,7 @@ the target receives no gradients and is copied on cumulative optimizer updates.
 
 | Setting | Value |
 | --- | --- |
-| Match cap | 120 seconds of simulation time; environment may terminate earlier |
+| Match cap | 30 seconds of simulation time (configurable up to 600); environment may terminate earlier |
 | Replay | Uniform, capacity 20,000 machine transitions; single-frame storage |
 | Minimum replay / batch | 256 sampleable transitions / batch 32 |
 | Post-game learning | 450 optimizer updates per eligible match (about one per four decisions of a full game, the Nature pace); configurable up to 2,048 |

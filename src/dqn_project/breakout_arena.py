@@ -17,7 +17,7 @@ from pathlib import Path
 
 ENV_ID = 'ALE/Breakout-v5'
 DECISION_PERIOD = 4 / 60
-MAX_DECISIONS = 4500          # 5 minutes of game time per round, for both players
+MAX_DECISIONS = 450           # 30 seconds of game time (15 decisions/s) per round, for both players
 AI_EPSILON = 0.05             # the evaluation epsilon used for the trained Breakout runs
 INPUT_TIMEOUT = 1.0           # seconds without a key heartbeat before a human round stops
 SPEEDS = (1, 2, 4)            # watch the DQN at 1x, 2x or 4x

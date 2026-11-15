@@ -43,7 +43,7 @@ flowchart LR
    version. If there is too little experience, show that honestly and retain the model.
 5. **Play again:** continue with the updated learner and retained experience.
 
-A game ends on the environment's termination or a proposed 120-second simulation
+A game ends on the environment's termination or the 30-second simulation
 cap. A point/rally does not trigger training. Weights stay fixed during play;
 updates happen afterward. No annotated dataset is needed: the machine learns from
 its own actions and rewards while facing the user.
@@ -112,7 +112,7 @@ stays on Windows; WSL2 forwards `localhost:8765` automatically.
 
 ### Playing
 
-1. Press **Create session**. The defaults are a 120-second game, 450 learning
+1. Press **Create session**. Every match lasts 30 seconds of game time; the defaults are 450 learning
    updates after each game and the **Nature DQN** network. The **Network** menu
    also offers **Dueling DQN**: the same convolutional layers, with the head split
    into a state value V(s) and per-action advantages A(s, a), combined as

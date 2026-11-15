@@ -95,10 +95,46 @@ type BreakoutState = {
   history?: BreakoutRow[]; pairs?: BreakoutPair[]
 }
 const breakoutReasons: Record<string, string> = {
-  game_over: 'Game over', time_limit: '5-minute limit reached', aborted: 'Stopped', focus_lost: 'Stopped: tab lost focus',
+  game_over: 'Game over', time_limit: '30 seconds up', aborted: 'Stopped', focus_lost: 'Stopped: tab lost focus',
   input_timeout: 'Stopped: keyboard connection lost', server_stopped: 'Stopped: server shut down',
 }
 const randomSeed = () => Math.floor(Math.random() * 100000)
+
+/* ---------- end-of-game announcement -------------------------------------------- */
+type Announcement = {
+  kind: 'result' | 'turn'; winner?: 'human' | 'machine' | 'draw'
+  human?: number; machine?: number; title?: string; detail?: string; scoreLabel?: string
+}
+const CONFETTI = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100']
+function WinnerOverlay({ announcement, onClose }: { announcement: Announcement; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, announcement.kind === 'turn' ? 4500 : 7000)
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape' || event.key === 'Enter') onClose() }
+    window.addEventListener('keydown', key)
+    return () => { clearTimeout(timer); window.removeEventListener('keydown', key) }
+  }, [announcement, onClose])
+  const { kind, winner, human, machine } = announcement
+  const variant = kind === 'turn' ? 'turn' : winner ?? 'draw'
+  const headline = kind === 'turn' ? announcement.title : winner === 'human' ? 'You win!' : winner === 'machine' ? 'The machine wins!' : 'It’s a draw!'
+  const kicker = kind === 'turn' ? 'ROUND COMPLETE' : winner === 'human' ? 'HUMAN VICTORY' : winner === 'machine' ? 'DEEP Q-NETWORK VICTORY' : 'DEAD EVEN'
+  const message = announcement.detail ?? (winner === 'human' ? 'You outscored the Deep Q-Network this time.' : winner === 'machine' ? 'The network outscored you. It learns from every game, so try again!' : 'Neither side could pull ahead.')
+  return <div className={`winner-overlay ${variant}`} role="status" aria-live="assertive" onClick={onClose}>
+    {variant === 'human' && <div className="confetti" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, background: CONFETTI[i % CONFETTI.length], animationDelay: `${(i % 9) * 0.09}s`, animationDuration: `${1.9 + (i % 5) * 0.25}s`, transform: `rotate(${(i * 47) % 360}deg)` }} />)}</div>}
+    {variant === 'machine' && <div className="scanlines" aria-hidden="true" />}
+    <div className="winner-card" onClick={event => event.stopPropagation()}>
+      <span className="winner-badge" aria-hidden="true">{variant === 'human' ? <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0Z" /><path d="M7 6H4a3 3 0 0 0 3 4m10-4h3a3 3 0 0 1-3 4" /></svg> : variant === 'machine' ? <b>Q</b> : variant === 'turn' ? <Icon name="check" size={28} /> : <b>=</b>}</span>
+      <small>{kicker}</small>
+      <h3>{headline}</h3>
+      {(human !== undefined || machine !== undefined) && <div className="winner-score">
+        {human !== undefined && <div className={winner === 'human' ? 'lead' : ''}><span>{announcement.scoreLabel ?? 'YOU'}</span><b>{fmt(human, 0)}</b></div>}
+        {human !== undefined && machine !== undefined && <i>vs</i>}
+        {machine !== undefined && <div className={winner === 'machine' ? 'lead' : ''}><span>DQN</span><b>{fmt(machine, 0)}</b></div>}
+      </div>}
+      <p>{message}</p>
+      <button className="button primary" onClick={onClose}>{kind === 'turn' ? 'Got it' : 'Continue'}</button>
+    </div>
+  </div>
+}
 const DEVELOPERS = ['Yashas H M', 'Prabhakar Saurabh', 'Madipally Bhagath Chandra']
 
 function BreakoutView({ online, pongActive }: { online: boolean | null; pongActive: boolean }) {
@@ -114,6 +150,27 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
   const socket = useRef<WebSocket | null>(null)
   const playing = state.status === 'playing'
   const humanPlaying = playing && state.mode === 'human'
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+  const closeAnnouncement = useCallback(() => setAnnouncement(null), [])
+  const lastRound = useRef<{ mode?: string } | null>(null)
+  useEffect(() => {
+    // Announce once, on the change from a running round to a finished one.
+    if (lastRound.current && state.status === 'finished' && state.completed) {
+      const score = numberOf(state.score) ?? 0
+      if (lastRound.current.mode === 'human') {
+        setAnnouncement({ kind: 'turn', title: 'Your 30 seconds are up', human: score, scoreLabel: 'YOUR SCORE', detail: 'Now press “2 · Watch the DQN” to see the trained network play the exact same start.' })
+      } else {
+        const pair = (state.pairs ?? []).find(item => item.seed === state.seed && item.model === state.model)
+        setAnnouncement(pair
+          ? { kind: 'result', winner: pair.winner === 'you' ? 'human' : pair.winner === 'dqn' ? 'machine' : 'draw', human: pair.human, machine: pair.dqn,
+              detail: pair.winner === 'you' ? 'You broke more bricks than the trained network from the exact same start.' : pair.winner === 'dqn' ? 'The trained network broke more bricks from the exact same start. Try another round!' : 'You and the network broke exactly as many bricks.' }
+          : { kind: 'turn', title: 'The DQN has played', machine: score, detail: `Play your own round on seed ${state.seed} to see who wins.` })
+      }
+    }
+    lastRound.current = state.status === 'playing' ? { mode: state.mode } : null
+  // Only the status change matters; the rest of the state is read at that moment.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.status])
 
   useEffect(() => {
     api<BreakoutModel[]>('/api/breakout/models').then(list => { setModels(list); setModel(current => current || list[0]?.id || '') })
@@ -176,7 +233,7 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
   const yourScore = live('human') ? state.score : done('human')?.score
   const dqnScore = live('ai') ? state.score : done('ai')?.score
   const chosen = models.find(item => item.id === model)
-  const remaining = numberOf(state.max_decisions, 4500)! - (playing ? numberOf(state.decisions) ?? 0 : 0)
+  const remaining = numberOf(state.max_decisions, 450)! - (playing ? numberOf(state.decisions) ?? 0 : 0)
   const verdict = yourScore !== undefined && dqnScore !== undefined && !playing
     ? yourScore === dqnScore ? 'A draw on this seed.' : yourScore > dqnScore ? 'You beat the DQN on this seed.' : 'The DQN wins this seed.'
     : done('human') ? 'Your score is in. Now watch the DQN play the same seed.' : 'Play your round first, then watch the DQN on the same seed.'
@@ -190,10 +247,10 @@ function BreakoutView({ online, pongActive }: { online: boolean | null; pongActi
     <div className="workspace-grid">
       <section className="arena-card" aria-labelledby="breakout-title"><div className="card-heading"><div><span className="section-index">01 / TAKE TURNS</span><h2 id="breakout-title">You vs. a trained DQN, same seed</h2></div><span className={`pill ${playing ? 'live' : 'neutral'}`}><span className="status-dot" />{playing ? (state.mode === 'human' ? 'Your round' : 'DQN round') : state.status === 'finished' ? 'Round finished' : 'Ready'}</span></div>
         <div className="scoreboard"><div className="player human"><span className="player-label"><span className="player-icon">H</span>YOU<span className="player-side">SEED {seed}</span></span><strong>{fmt(yourScore, 0)}</strong></div><div className="match-clock"><span>{playing ? `${state.mode === 'human' ? 'YOUR' : 'DQN'} ROUND${state.speed && state.speed > 1 ? ` · ${state.speed}×` : ''}` : 'NEXT ROUND'}</span><strong>{duration(remaining / 15)}</strong><small>{playing && typeof state.lives === 'number' ? `${state.lives} ${state.lives === 1 ? 'LIFE' : 'LIVES'} LEFT` : 'GAME TIME LEFT'}</small></div><div className="player machine"><span className="player-label"><span className="player-side">{chosen ? chosen.label.replace(' · trained DQN', '').toUpperCase() : 'TRAINED'}</span>DQN<span className="player-icon">Q</span></span><strong>{fmt(dqnScore, 0)}</strong></div></div>
-        <div className="game-region" tabIndex={0} ref={region} aria-label="Breakout game. Use left and right arrows or A and D to move, and space to launch the ball."><GameFeed playing={playing} hasMatch={state.status !== 'idle'} endpoint="/api/breakout/frame.jpg" alt="Live Atari Breakout game" idleTitle="Break more bricks than the DQN." idleText="Play a round, then watch a trained network play the exact same start." tag="ATARI BREAKOUT · REAL ENVIRONMENT" /><div className="feed-bottom"><span><span className={`live-light ${playing ? 'on' : ''}`} />{playing ? (state.mode === 'human' ? 'LIVE · YOUR TURN' : 'LIVE · TRAINED DQN PLAYING') : state.status === 'finished' ? (breakoutReasons[state.reason ?? ''] ?? state.reason ?? 'ROUND COMPLETE').toUpperCase() : 'WAITING FOR A ROUND'}</span><span>{playing ? `${fmt(state.decisions, 0)} / ${fmt(state.max_decisions, 0)} DECISIONS` : '15 DECISIONS / S'}</span></div></div>
+        <div className="game-region" tabIndex={0} ref={region} aria-label="Breakout game. Use left and right arrows or A and D to move, and space to launch the ball.">{announcement && <WinnerOverlay announcement={announcement} onClose={closeAnnouncement} />}<GameFeed playing={playing} hasMatch={state.status !== 'idle'} endpoint="/api/breakout/frame.jpg" alt="Live Atari Breakout game" idleTitle="Break more bricks than the DQN." idleText="Play a round, then watch a trained network play the exact same start." tag="ATARI BREAKOUT · REAL ENVIRONMENT" /><div className="feed-bottom"><span><span className={`live-light ${playing ? 'on' : ''}`} />{playing ? (state.mode === 'human' ? 'LIVE · YOUR TURN' : 'LIVE · TRAINED DQN PLAYING') : state.status === 'finished' ? (breakoutReasons[state.reason ?? ''] ?? state.reason ?? 'ROUND COMPLETE').toUpperCase() : 'WAITING FOR A ROUND'}</span><span>{playing ? `${fmt(state.decisions, 0)} / ${fmt(state.max_decisions, 0)} DECISIONS` : '15 DECISIONS / S'}</span></div></div>
         <div className="arena-actions"><div className="keyboard-help"><span className="key">←</span><span className="key">→</span><span className="or">or A / D</span><span className="key space">SPACE</span><span>launch</span></div>{playing ? <button className="button stop" onClick={() => void stop()}><Icon name="stop" size={16} />Stop round</button> : <div className="turn-buttons"><button className="button primary" disabled={blocked} onClick={() => void begin('human')}><Icon name="play" size={16} />{busy ?? (done('human') ? 'Replay your round' : '1 · Play your round')}</button><button className="button secondary" disabled={blocked || !model} onClick={() => void begin('ai')}><Icon name="brain" size={16} />2 · Watch the DQN</button></div>}</div>
         {humanPlaying && <div className="touch-controls" aria-label="Touch controls">{[['left', '← Left'], ['right', 'Right →'], ['fire', 'Launch']].map(([key, title]) => <button key={key} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); press(key, true) }} onPointerUp={() => press(key, false)} onPointerCancel={() => press(key, false)}>{title}</button>)}</div>}
-        <div className="arena-footnote"><Icon name="info" size={14} /><span>Both rounds use the same seed and random no-op start, 5 lives and a 5-minute limit. The DQN acts with ε 0.05, as in its evaluation.</span></div>
+        <div className="arena-footnote"><Icon name="info" size={14} /><span>Both rounds use the same seed and random no-op start, 5 lives and 30 seconds. The DQN acts with ε 0.05, as in its evaluation.</span></div>
       </section>
 
       <section className="learning-card" aria-labelledby="breakout-setup-title"><div className="card-heading"><div><span className="section-index">02 / SET UP THE ROUND</span><h2 id="breakout-setup-title">Opponent and seed</h2></div><span className="brain-icon"><Icon name="grid" size={22} /></span></div>
@@ -235,7 +292,7 @@ function App() {
   const [busy, setBusy] = useState<string | null>(null)
   const [saved, setSaved] = useState<SavedSession[]>([])
   const [selectedSession, setSelectedSession] = useState('')
-  const [durationSetting, setDurationSetting] = useState(120)
+  const durationSetting = 30  // every Pong match lasts 30 seconds of game time
   const [updatesSetting, setUpdatesSetting] = useState(450)
   const [networkSetting, setNetworkSetting] = useState('nature')
   const [pretrained, setPretrained] = useState<PretrainedModel[]>([])
@@ -267,6 +324,23 @@ function App() {
   const replay = numberOf(snapshot.replay_size) ?? 0
   const minReplay = numberOf(config.min_replay) ?? 256
   const canPlay = hasSession && !playing && !learning && !busy
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+  const closeAnnouncement = useCallback(() => setAnnouncement(null), [])
+  const wasPlaying = useRef(false)
+  const announced = useRef<string | null>(null)
+  useEffect(() => {
+    // Once per finished match: stopped or aborted matches (valid = false) are not announced.
+    const result = recordOf(snapshot.last_result)
+    const id = textOf(result.id)
+    if (wasPlaying.current && !playing && result.status === 'completed' && id && announced.current !== id) {
+      announced.current = id
+      const human = numberOf(result.human_return) ?? 0, machine = numberOf(result.machine_return) ?? 0
+      const winner = result.outcome === 'human' || result.outcome === 'machine' ? result.outcome : 'draw'
+      const note = ' Scores are points won minus points lost, so they can be negative.'
+      setAnnouncement({ kind: 'result', winner, human, machine, detail: (winner === 'human' ? 'You outscored the Deep Q-Network this time.' : winner === 'machine' ? 'The network outscored you. It learns from every game, so try again!' : 'Neither side could pull ahead.') + note })
+    }
+    wasPlaying.current = playing
+  }, [playing, snapshot.last_result])
 
   const refreshSaved = useCallback(async () => {
     try {
@@ -392,14 +466,14 @@ function App() {
       {view === 'pong' && <>
       {(error || snapshot.error || online === false) && <div className="error-banner" role="alert"><Icon name="info" /><div><strong>{online === false ? 'The local engine is not connected.' : 'The experiment needs attention.'}</strong><p>{error ?? snapshot.error ?? 'Start the lab backend, then this page will reconnect automatically. No game data is being simulated.'}</p></div>{error && <button aria-label="Dismiss error" onClick={() => setError(null)}><Icon name="close" size={17} /></button>}</div>}
 
-      {(!hasSession || setupOpen) && <section className="setup-card" aria-labelledby="setup-title"><div className="setup-intro"><span className="pill neutral">START HERE</span><h2 id="setup-title">Meet your first opponent.</h2><p>{chosenModel ? `${chosenModel.label} plays at ε ${fmt(chosenModel.epsilon ?? 0.05, 2)} and keeps learning from your games after each final whistle.` : 'A fresh DQN starts with random weights. Each completed game adds experience; learning happens after the final whistle.'}</p></div><div className="setup-fields"><label>Match length<select value={durationSetting} onChange={e => setDurationSetting(Number(e.target.value))}><option value={120}>2 minutes · full demo</option><option value={20}>20 seconds · quick cycle</option><option value={60}>1 minute</option></select></label><label>Updates after a game<select value={updatesSetting} onChange={e => setUpdatesSetting(Number(e.target.value))}><option value={450}>450 updates · recommended</option><option value={128}>128 updates</option><option value={32}>32 updates · quick cycle</option></select></label><label>Opponent<select value={opponent} onChange={e => { setOpponent(e.target.value); const model = pretrained.find(item => item.id === e.target.value); if (model) setNetworkSetting(model.network) }}>{pretrained.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}<option value="">Fresh DQN · random weights</option></select></label><label>Network<select value={chosenModel?.network ?? networkSetting} disabled={Boolean(chosenModel)} title={chosenModel ? 'Set by the trained model' : undefined} onChange={e => setNetworkSetting(e.target.value)}><option value="nature">Nature DQN · paper network</option><option value="dueling">Dueling DQN · value + advantage</option></select></label><label className="seed-label">Session seed<input type="number" min="0" max="4294967294" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label><button className="button primary create-button" onClick={newSession} disabled={Boolean(busy) || online === false}><Icon name="plus" size={17} />{busy ?? 'Create session'}</button>{saved.length > 0 && <div className="restore-row"><select aria-label="Saved session" value={selectedSession} onChange={e => setSelectedSession(e.target.value)}><option value="">Restore a saved session…</option>{saved.map(item => <option value={item.id} key={item.id}>{item.id.slice(0, 8)} · {item.network === 'dueling' ? 'Dueling' : 'Nature'}{item.active_version !== undefined ? ` · v${item.active_version}` : ''}{item.games !== undefined ? ` · ${item.games} games` : ''}</option>)}</select><button className="button secondary" disabled={!selectedSession || Boolean(busy)} onClick={() => void perform('/api/sessions', { session_id: selectedSession }, 'Restoring session')}><Icon name="refresh" size={15} />Restore</button></div>}</div></section>}
+      {(!hasSession || setupOpen) && <section className="setup-card" aria-labelledby="setup-title"><div className="setup-intro"><span className="pill neutral">START HERE</span><h2 id="setup-title">Meet your first opponent.</h2><p>{chosenModel ? `${chosenModel.label} plays at ε ${fmt(chosenModel.epsilon ?? 0.05, 2)} and keeps learning from your games after each final whistle.` : 'A fresh DQN starts with random weights. Each completed game adds experience; learning happens after the final whistle.'}</p></div><div className="setup-fields"><label>Match length<span className="fixed-setting">30 seconds</span></label><label>Updates after a game<select value={updatesSetting} onChange={e => setUpdatesSetting(Number(e.target.value))}><option value={450}>450 updates · recommended</option><option value={128}>128 updates</option><option value={32}>32 updates · quick cycle</option></select></label><label>Opponent<select value={opponent} onChange={e => { setOpponent(e.target.value); const model = pretrained.find(item => item.id === e.target.value); if (model) setNetworkSetting(model.network) }}>{pretrained.map(model => <option value={model.id} key={model.id}>{model.label}</option>)}<option value="">Fresh DQN · random weights</option></select></label><label>Network<select value={chosenModel?.network ?? networkSetting} disabled={Boolean(chosenModel)} title={chosenModel ? 'Set by the trained model' : undefined} onChange={e => setNetworkSetting(e.target.value)}><option value="nature">Nature DQN · paper network</option><option value="dueling">Dueling DQN · value + advantage</option></select></label><label className="seed-label">Session seed<input type="number" min="0" max="4294967294" value={seed} onChange={e => setSeed(Number(e.target.value))} /></label><button className="button primary create-button" onClick={newSession} disabled={Boolean(busy) || online === false}><Icon name="plus" size={17} />{busy ?? 'Create session'}</button>{saved.length > 0 && <div className="restore-row"><select aria-label="Saved session" value={selectedSession} onChange={e => setSelectedSession(e.target.value)}><option value="">Restore a saved session…</option>{saved.map(item => <option value={item.id} key={item.id}>{item.id.slice(0, 8)} · {item.network === 'dueling' ? 'Dueling' : 'Nature'}{item.active_version !== undefined ? ` · v${item.active_version}` : ''}{item.games !== undefined ? ` · ${item.games} games` : ''}</option>)}</select><button className="button secondary" disabled={!selectedSession || Boolean(busy)} onClick={() => void perform('/api/sessions', { session_id: selectedSession }, 'Restoring session')}><Icon name="refresh" size={15} />Restore</button></div>}</div></section>}
 
       <div className="journey" aria-label="Experiment cycle">{['Play a match', 'Review the result', 'Train the network', 'Meet the next version'].map((step, index) => <React.Fragment key={step}><div className={index === stage ? 'journey-step current' : 'journey-step'}><span>{String(index+1).padStart(2, '0')}</span>{step}</div>{index < 3 && <span className="journey-connector" />}</React.Fragment>)}</div>
 
       <div className="workspace-grid">
         <section className="arena-card" id="arena" aria-labelledby="arena-title"><div className="card-heading"><div><span className="section-index">01 / THE ARENA</span><h2 id="arena-title">Human vs. Deep Q-Network</h2></div><span className={`pill ${playing || learning ? 'live' : 'neutral'}`}><span className="status-dot" />{labels[status] ?? status.replaceAll('_', ' ')}</span></div>
           <div className="scoreboard"><div className="player human"><span className="player-label"><span className="player-icon">H</span>YOU<span className="player-side">HUMAN</span></span><strong>{fmt(humanReturn, 0)}</strong></div><div className="match-clock"><span>{matchIndex ? `MATCH ${String(matchIndex).padStart(2, '0')}` : 'NEXT MATCH'}</span><strong>{duration(playing ? numberOf(snapshot.match?.remaining_seconds) : numberOf(config.match_seconds, durationSetting))}</strong><small>SIMULATION TIME</small></div><div className="player machine"><span className="player-label"><span className="player-side">DQN {version(snapshot.match?.policy_version ?? snapshot.active_version)}</span>MACHINE<span className="player-icon">Q</span></span><strong>{fmt(machineReturn, 0)}</strong></div></div>
-          <div className="game-region" tabIndex={0} ref={gameRegion} aria-label="Pong game. Use up and down arrows or W and S to move, and space to serve."><GameFeed playing={playing} hasMatch={Boolean(snapshot.match || snapshot.last_result)} /><div className="feed-bottom"><span><span className={`live-light ${playing ? 'on' : ''}`} />{playing ? 'LIVE ATARI' : learning ? 'MATCH COMPLETE · WEIGHTS UPDATING' : hasSession ? 'READY FOR THE NEXT MATCH' : 'WAITING FOR A SESSION'}</span><span>84 × 84 × 4 INPUT</span></div></div>
+          <div className="game-region" tabIndex={0} ref={gameRegion} aria-label="Pong game. Use up and down arrows or W and S to move, and space to serve.">{announcement && <WinnerOverlay announcement={announcement} onClose={closeAnnouncement} />}<GameFeed playing={playing} hasMatch={Boolean(snapshot.match || snapshot.last_result)} /><div className="feed-bottom"><span><span className={`live-light ${playing ? 'on' : ''}`} />{playing ? 'LIVE ATARI' : learning ? 'MATCH COMPLETE · WEIGHTS UPDATING' : hasSession ? 'READY FOR THE NEXT MATCH' : 'WAITING FOR A SESSION'}</span><span>84 × 84 × 4 INPUT</span></div></div>
           <div className="arena-actions"><div className="keyboard-help"><span className="key">↑</span><span className="key">↓</span><span className="or">or W / S</span><span className="key space">SPACE</span><span>serve</span></div>{playing ? <button className="button stop" disabled={Boolean(busy)} onClick={() => void perform('/api/matches/abort', {}, 'Stopping match')}><Icon name="stop" size={16} />Stop match</button> : learning ? <button className="button secondary" disabled={Boolean(busy)} onClick={() => void perform('/api/training/cancel', {}, 'Cancelling updates')}><Icon name="stop" size={15} />Cancel learning</button> : <button className="button primary" disabled={!canPlay || online === false} onClick={() => void perform('/api/matches', {}, 'Starting Atari')}><Icon name="play" size={17} />{busy ?? (history.length ? 'Play again' : 'Start match')}<Icon name="arrow" size={17} /></button>}</div>
           {playing && <div className="touch-controls" aria-label="Touch controls">{[['up', '↑ Move up'], ['down', '↓ Move down'], ['fire', 'Serve']].map(([key, title]) => <button key={key} onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); press(key, true) }} onPointerUp={() => press(key, false)} onPointerCancel={() => press(key, false)}>{title}</button>)}</div>}
           <div className="arena-footnote"><Icon name="info" size={14} /><span>Scores show environment return, including serve penalties. Model weights stay fixed during a match.</span></div>

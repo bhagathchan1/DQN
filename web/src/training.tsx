@@ -126,58 +126,88 @@ const PIPELINE = [
   ['Neural network', '3 layers that spot patterns (ball, paddles, gaps), then 512 “neurons” that combine them.'],
   ['One score per button', 'Out comes a Q-value for each button. The highest one is pressed.'],
 ]
-function Court({ ball, faded = false, label }: { ball: [number, number]; faded?: boolean; label?: string }) {
-  return <svg viewBox="0 0 84 84" className={faded ? 'tx-court faded' : 'tx-court'} role="img" aria-label={label}>
-    <rect width="84" height="84" fill="#152019" /><rect x="4" y="22" width="3" height="16" fill="#e9b07c" /><rect x="77" y="40" width="3" height="16" fill="#b8e5a5" />
-    <line x1="42" x2="42" y1="0" y2="84" stroke="#2c3b31" strokeDasharray="3 4" /><rect x={ball[0] - 2} y={ball[1] - 2} width="4" height="4" fill="#f4f4ec" />
+type Game = 'pong' | 'breakout'
+function GameSwitch({ game, onChange }: { game: Game; onChange: (game: Game) => void }) {
+  return <div className="tx-toggle" role="group" aria-label="Game">{(['pong', 'breakout'] as const).map(id => <button key={id} className={game === id ? 'selected' : ''} aria-pressed={game === id} onClick={() => onChange(id)}>{id === 'pong' ? 'Pong' : 'Breakout'}</button>)}</div>
+}
+const BRICKS = ['#d1495b', '#e07a3b', '#d9a33b', '#4aa564', '#3b8fd6', '#5d5ad1']
+/** A simplified Atari screen. Pong: the DQN is the orange paddle on the left. Breakout: the DQN moves the bottom paddle. */
+function Court({ game = 'pong', ball, faded = false, label, paddle = 42, arrow, big = false }: {
+  game?: Game; ball: [number, number] | null; faded?: boolean; label?: string; paddle?: number; arrow?: string; big?: boolean
+}) {
+  return <svg viewBox="0 0 84 84" className={`tx-court${faded ? ' faded' : ''}${big ? ' big' : ''}`} role="img" aria-label={label}>
+    {game === 'pong' ? <>
+      <rect width="84" height="84" fill="#152019" /><rect x="4" y="22" width="3" height="16" fill="#e9b07c" /><rect x="77" y="40" width="3" height="16" fill="#b8e5a5" />
+      <line x1="42" x2="42" y1="0" y2="84" stroke="#2c3b31" strokeDasharray="3 4" />
+    </> : <>
+      <rect width="84" height="84" fill="#111417" /><rect x="0" y="6" width="84" height="2" fill="#5b6067" /><rect x="0" y="6" width="2" height="78" fill="#5b6067" /><rect x="82" y="6" width="2" height="78" fill="#5b6067" />
+      {BRICKS.map((color, row) => <rect key={color} x="2" y={14 + row * 3} width="80" height="2" fill={color} />)}
+      <rect x={paddle - 6} y="76" width="12" height="2" fill="#d1495b" />
+    </>}
+    {arrow && <><path d={arrow} stroke="#f0a35e" strokeWidth="1.6" fill="none" markerEnd="url(#tx-head)" /><defs><marker id="tx-head" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 6 3 0 6Z" fill="#f0a35e" /></marker></defs></>}
+    {ball && <rect x={ball[0] - 2} y={ball[1] - 2} width={game === 'pong' ? 4 : 3} height={game === 'pong' ? 4 : 3} fill="#f4f4ec" />}
   </svg>
+}
+const FRAMES: Record<Game, { balls: [number, number][]; motion: React.ReactNode }> = {
+  pong: { balls: [[58, 58], [48, 50], [38, 42], [28, 34]], motion: <>the ball moving <b>up and to the left</b>, toward the DQN’s orange paddle.</> },
+  breakout: { balls: [[52, 68], [46, 60], [40, 52], [34, 44]], motion: <>the ball flying <b>up and to the left</b>, away from the paddle and toward the bricks.</> },
 }
 function SeesChapter() {
   const [stage, setStage] = useState(2)
   const [four, setFour] = useState(true)
-  const balls: [number, number][] = [[58, 58], [48, 50], [38, 42], [28, 34]]
+  const [game, setGame] = useState<Game>('pong')
+  const { balls, motion } = FRAMES[game]
   return <div className="tx-chapter-body">
     <ol className="tx-pipeline">{PIPELINE.map(([title], index) => <li key={title}>
       <button className={index === stage ? 'active' : ''} aria-pressed={index === stage} onClick={() => setStage(index)}><span>{index + 1}</span>{title}</button>
       {index < PIPELINE.length - 1 && <i aria-hidden="true">→</i>}</li>)}</ol>
     <p className="tx-explain"><b>{PIPELINE[stage][0]}.</b> {PIPELINE[stage][1]}</p>
     <div className="tx-frames-card">
-      <div className="tx-toggle" role="group" aria-label="How many frames the agent sees">
-        <button className={!four ? 'selected' : ''} aria-pressed={!four} onClick={() => setFour(false)}>1 frame</button>
-        <button className={four ? 'selected' : ''} aria-pressed={four} onClick={() => setFour(true)}>4 frames</button>
+      <div className="tx-data-controls">
+        <GameSwitch game={game} onChange={setGame} />
+        <div className="tx-toggle" role="group" aria-label="How many frames the agent sees">
+          <button className={!four ? 'selected' : ''} aria-pressed={!four} onClick={() => setFour(false)}>1 frame</button>
+          <button className={four ? 'selected' : ''} aria-pressed={four} onClick={() => setFour(true)}>4 frames</button>
+        </div>
       </div>
-      <div className="tx-frames">{(four ? balls : balls.slice(-1)).map((ball, index, list) => <div key={index} className="tx-frame">
-        <Court ball={ball} faded={four && index < list.length - 1} label={`Frame ${four ? index + 1 : 4}`} /><small>{four ? `t − ${list.length - 1 - index}` : 'now'}</small></div>)}
+      <div className="tx-frames">{(four ? balls : balls.slice(-1)).map((ball, index, list) => <div key={`${game}-${index}`} className="tx-frame">
+        <Court game={game} ball={ball} faded={four && index < list.length - 1} label={`Frame ${four ? index + 1 : 4}`} /><small>{four ? `t − ${list.length - 1 - index}` : 'now'}</small></div>)}
         {!four && <div className="tx-question"><b>?</b><span>Is the ball going up or down, fast or slow? From one picture you cannot tell.</span></div>}
-        {four && <div className="tx-question ok"><Icon name="check" size={18} /><span>Layered together, the frames show the ball moving <b>up and to the left</b>, toward the orange paddle.</span></div>}
+        {four && <div className="tx-question ok"><Icon name="check" size={18} /><span>Layered together, the frames show {motion}</span></div>}
       </div>
+      <p className="tx-note">{game === 'pong' ? 'Pong: two paddles, one ball. A point is won when the ball gets past the other paddle.' : 'Breakout: one paddle at the bottom, a wall of bricks at the top. Hitting a brick scores; letting the ball fall past the paddle costs one of 5 lives.'}</p>
     </div>
   </div>
 }
 
 /* ---------- chapter 2: how it decides --------------------------------------------- */
-const SITUATIONS = [
-  { id: 'high', title: 'Ball coming in high', ball: [28, 26] as [number, number], arrow: 'M34 40 L 12 22', q: { 'Move up': 0.62, Stay: 0.18, 'Move down': -0.35 } },
-  { id: 'low', title: 'Ball coming in low', ball: [28, 60] as [number, number], arrow: 'M34 46 L 12 64', q: { 'Move up': -0.3, Stay: 0.15, 'Move down': 0.58 } },
-  { id: 'away', title: 'Ball moving away', ball: [50, 42] as [number, number], arrow: 'M40 42 L 66 42', q: { 'Move up': 0.05, Stay: 0.12, 'Move down': 0.04 } },
-]
+type Situation = { id: string; title: string; ball: [number, number] | null; arrow?: string; paddle?: number; q: Record<string, number> }
+const SITUATIONS: Record<Game, Situation[]> = {
+  pong: [
+    { id: 'high', title: 'Ball coming in high', ball: [28, 26], arrow: 'M34 40 L 12 22', q: { 'Move up': 0.62, Stay: 0.18, 'Move down': -0.35 } },
+    { id: 'low', title: 'Ball coming in low', ball: [28, 60], arrow: 'M34 46 L 12 64', q: { 'Move up': -0.3, Stay: 0.15, 'Move down': 0.58 } },
+    { id: 'away', title: 'Ball moving away', ball: [50, 42], arrow: 'M40 42 L 66 42', q: { 'Move up': 0.05, Stay: 0.12, 'Move down': 0.04 } },
+  ],
+  breakout: [
+    { id: 'left', title: 'Ball falling to the left', ball: [22, 56], arrow: 'M34 40 L 24 54', paddle: 54, q: { Left: 0.71, 'Do nothing': 0.22, Fire: 0.2, Right: -0.18 } },
+    { id: 'right', title: 'Ball falling to the right', ball: [62, 56], arrow: 'M50 40 L 60 54', paddle: 30, q: { Right: 0.69, 'Do nothing': 0.21, Fire: 0.19, Left: -0.2 } },
+    { id: 'launch', title: 'Waiting to launch', ball: null, paddle: 42, q: { Fire: 0.55, 'Do nothing': 0.31, Left: 0.3, Right: 0.29 } },
+  ],
+}
 function DecidesChapter() {
+  const [game, setGame] = useState<Game>('pong')
   const [pick, setPick] = useState(0)
   const [hover, setHover] = useState<string | null>(null)
-  const situation = SITUATIONS[pick]
+  const situation = SITUATIONS[game][Math.min(pick, SITUATIONS[game].length - 1)]
   const entries = Object.entries(situation.q)
   const best = entries.reduce((a, b) => (b[1] > a[1] ? b : a))[0]
   const zero = 50, scale = 42 // percent of the bar track
   return <div className="tx-chapter-body tx-two">
     <div>
-      <div className="tx-chips" role="group" aria-label="Game situation">{SITUATIONS.map((item, index) => <button key={item.id} className={index === pick ? 'selected' : ''} aria-pressed={index === pick} onClick={() => setPick(index)}>{item.title}</button>)}</div>
-      <svg viewBox="0 0 84 84" className="tx-court big" role="img" aria-label={situation.title}>
-        <rect width="84" height="84" fill="#152019" /><rect x="4" y="34" width="3" height="16" fill="#e9b07c" /><rect x="77" y="36" width="3" height="16" fill="#b8e5a5" />
-        <line x1="42" x2="42" y1="0" y2="84" stroke="#2c3b31" strokeDasharray="3 4" />
-        <path d={situation.arrow} stroke="#f0a35e" strokeWidth="1.6" fill="none" markerEnd="url(#tx-head)" /><defs><marker id="tx-head" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 6 3 0 6Z" fill="#f0a35e" /></marker></defs>
-        <rect x={situation.ball[0] - 2} y={situation.ball[1] - 2} width="4" height="4" fill="#f4f4ec" />
-      </svg>
-      <p className="tx-note">The DQN controls the orange paddle on the left, as in the two-player game. Values are illustrative, to show the idea.</p>
+      <div className="tx-data-controls"><GameSwitch game={game} onChange={next => { setGame(next); setPick(0) }} /></div>
+      <div className="tx-chips" role="group" aria-label="Game situation">{SITUATIONS[game].map((item, index) => <button key={item.id} className={item.id === situation.id ? 'selected' : ''} aria-pressed={item.id === situation.id} onClick={() => setPick(index)}>{item.title}</button>)}</div>
+      <Court game={game} big ball={situation.ball} arrow={situation.arrow} paddle={situation.paddle} label={situation.title} />
+      <p className="tx-note">{game === 'pong' ? 'The DQN controls the orange paddle on the left, as in the two-player game.' : 'The DQN controls the paddle at the bottom.'} Values are illustrative, to show the idea.</p>
     </div>
     <div>
       <h4 className="tx-sub">The network’s <Term word="Q-value">Q-values</Term> for this screen</h4>
@@ -187,9 +217,9 @@ function DecidesChapter() {
         <span className="tx-bar-track"><span className="tx-bar-zero" style={{ left: `${zero}%` }} />
           <span className="tx-bar" style={{ left: `${value >= 0 ? zero : zero + value * scale}%`, width: `${Math.max(Math.abs(value) * scale, 0.8)}%`, background: action === best ? SERIES[0] : '#c9cfc6' }} /></span>
         <b className="tx-bar-value">{value > 0 ? '+' : ''}{fmt(value, 2)}</b>
-        {hover === action && <span className="tx-bar-tip">{action === best ? 'Highest score, so this button is pressed.' : value < 0 ? 'Expected to lose points: avoid.' : 'Not the best option on this screen.'}</span>}
+        {hover === action && <span className="tx-bar-tip">{action === best ? 'Highest score, so this button is pressed.' : value < 0 ? 'Expected to lose out: avoid.' : 'Not the best option on this screen.'}</span>}
       </div>)}</div>
-      <p className="tx-explain">A Q-value is the network’s prediction of <b>future points</b> if it presses that button now. It always presses the highest one, unless it is exploring (next chapter). The real Pong network scores 6 buttons; we show the 3 that matter.</p>
+      <p className="tx-explain">A Q-value is the network’s prediction of <b>future points</b> if it presses that button now. It always presses the highest one, unless it is exploring (next chapter). {game === 'pong' ? 'The real Pong network scores 6 buttons; we show the 3 that matter.' : 'Breakout has exactly 4 buttons, all shown: the ball is launched with Fire, then the paddle moves left or right.'}</p>
     </div>
   </div>
 }
@@ -438,7 +468,81 @@ function RunsChapter() {
   </div>
 }
 
-/* ---------- chapter 7: the models --------------------------------------------------- */
+/* ---------- chapter 7: Breakout training in detail -------------------------------- */
+const BRICK_ROWS = [
+  { color: '#d1495b', name: 'Red', points: 7 }, { color: '#e07a3b', name: 'Orange', points: 7 },
+  { color: '#d9a33b', name: 'Yellow', points: 4 }, { color: '#4aa564', name: 'Green', points: 4 },
+  { color: '#3b8fd6', name: 'Aqua', points: 1 }, { color: '#5d5ad1', name: 'Blue', points: 1 },
+]
+const BREAKOUT_RUNS = [
+  { id: 'uniform', name: 'Uniform replay', color: SERIES[0], hours: 6.3, games: 22409, best: 257, final: 46.6 },
+  { id: 'prioritized', name: 'Prioritized replay', color: SERIES[1], hours: 7.2, games: 22204, best: 77, final: 29.9 },
+  { id: 'upstream', name: 'Upstream setup', color: SERIES[2], hours: 6.6, games: 48217, best: 91, final: 12.9 },
+]
+const RECIPE: [string, string, string, string][] = [
+  ['Replay memory', '200,000 moments', '200,000 moments', '10,000 moments'],
+  ['Which memories are practised', 'Random, all equally likely', 'Surprising ones more often (α 0.6, β 0.4 → 1)', 'Random, all equally likely'],
+  ['Optimizer', 'RMSProp, learning rate 0.00025', 'RMSProp, learning rate 0.00025', 'Adam, learning rate 0.0001'],
+  ['Target network refreshed', 'Every 10,000 decisions', 'Every 10,000 decisions', 'Every 1,000 decisions'],
+  ['Learning starts after', '50,000 decisions', '50,000 decisions', '10,000 decisions'],
+  ['Exploration ε', '1.0 → 0.1 over the first 1M', '1.0 → 0.1 over the first 1M', '1.0 → 0.1 over 1M, then slowly lower (0.066 at 10M)'],
+  ['An episode ends when', 'All 5 lives are lost', 'All 5 lives are lost', 'Any single life is lost'],
+  ['Gradient clipping', 'Whole network, norm 10', 'Whole network, norm 10', 'Each weight tensor, norm 10'],
+]
+const MILESTONES = [5, 10, 20, 30, 40]
+
+function BreakoutChapter() {
+  const [curves, setCurves] = useState<Curves | null>(null)
+  const [row, setRow] = useState<number | null>(null)
+  useEffect(() => { api<Curves>('/api/training/curves').then(setCurves).catch(() => { /* milestones show dashes */ }) }, [])
+  // First decision count at which the 100-episode average reached each score.
+  const reached = (id: string, score: number) => {
+    const point = curves?.breakout.training[id]?.find(p => p[1] >= score)
+    return point ? steps(point[0]) : 'never'
+  }
+  return <div className="tx-chapter-body">
+    <p className="tx-explain">All three Breakout models use the same Nature network and the same 10 million <Term word="decision">decisions</Term> of practice. They differ only in <b>how they learn</b>: how much they remember, which memories they practise, and how big each learning step is. That makes Breakout a small experiment in training recipes.</p>
+    <div className="tx-two">
+      <div>
+        <h4 className="tx-sub">How Breakout is scored</h4>
+        <div className="tx-wall" role="list" aria-label="Brick rows and their points">{BRICK_ROWS.map((brick, index) => <div key={brick.name} role="listitem" className={`tx-wall-row ${row === index ? 'active' : ''}`} tabIndex={0}
+          onMouseEnter={() => setRow(index)} onMouseLeave={() => setRow(null)} onFocus={() => setRow(index)} onBlur={() => setRow(null)}>
+          <span className="tx-brick" style={{ background: brick.color }} /><span>{brick.name} row</span><b>{brick.points} {brick.points === 1 ? 'point' : 'points'}</b><em>→ trains as +1</em></div>)}</div>
+        <p className="tx-note">{row === null ? 'Hover a row.' : `${BRICK_ROWS[row].name} bricks are worth ${BRICK_ROWS[row].points} on the scoreboard, but every brick is stored as +1 for learning.`} Clipping rewards to +1 keeps one network setting usable for every Atari game.</p>
+      </div>
+      <div>
+        <h4 className="tx-sub">Lives and penalties</h4>
+        <ul className="tx-facts">
+          <li><b>5 lives.</b> Letting the ball fall past the paddle costs a life. When all 5 are gone, the game is over.</li>
+          <li><b>No negative reward.</b> Unlike Pong, Breakout never subtracts points. A lost ball simply stops the scoring, and the network learns that from the missing future rewards.</li>
+          <li><b>Fire to launch.</b> After each lost life the ball only comes back after pressing Fire, so the network must also learn to serve.</li>
+          <li><b>The upstream run</b> treats every lost life as the end of an <Term word="episode" />, a common trick that makes losing a ball feel final. That is why it counts 48,217 episodes instead of about 22,000.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h4 className="tx-sub">The three recipes side by side</h4>
+    <div className="table-scroll tx-table tx-recipe"><table><thead><tr><th>SETTING</th>{BREAKOUT_RUNS.map(run => <th key={run.id}><i style={{ background: run.color }} />{run.name.toUpperCase()}</th>)}</tr></thead>
+      <tbody>{RECIPE.map(([label, ...values]) => <tr key={label}><td>{label}</td>{values.map((value, index) => <td key={index} className={index > 0 && value !== values[0] ? 'differs' : ''}>{value}</td>)}</tr>)}</tbody></table></div>
+    <p className="tx-note">Highlighted cells differ from the uniform-replay recipe. Everything else is shared: 4 stacked 84 × 84 frames, a decision every 4 frames, γ 0.99, batches of 32, one update every 4 decisions, rewards clipped to ±1.</p>
+
+    <h4 className="tx-sub">How fast each one learned</h4>
+    <div className="table-scroll tx-table tx-recipe"><table><thead><tr><th>100-GAME AVERAGE REACHED</th>{BREAKOUT_RUNS.map(run => <th key={run.id}><i style={{ background: run.color }} />{run.name.toUpperCase()}</th>)}</tr></thead>
+      <tbody>{MILESTONES.map(score => <tr key={score}><td>{score} points</td>{BREAKOUT_RUNS.map(run => <td key={run.id}>{curves ? reached(run.id, score) : '…'}</td>)}</tr>)}
+        <tr className="tx-sum"><td>Games played</td>{BREAKOUT_RUNS.map(run => <td key={run.id}>{fmt(run.games, 0)}</td>)}</tr>
+        <tr className="tx-sum"><td>Best single game</td>{BREAKOUT_RUNS.map(run => <td key={run.id}>{fmt(run.best, 0)}</td>)}</tr>
+        <tr className="tx-sum"><td>Final 100-game average</td>{BREAKOUT_RUNS.map(run => <td key={run.id}>{fmt(run.final, 1)}{run.id === 'upstream' ? ' per life' : ''}</td>)}</tr>
+        <tr className="tx-sum"><td>GPU time</td>{BREAKOUT_RUNS.map(run => <td key={run.id}>{fmt(run.hours, 1)} h</td>)}</tr></tbody></table></div>
+    <ol className="tx-story">
+      <li><b>Prioritized replay started faster.</b><p>By re-reading surprising moments, it was ahead early (about 10 points at 2M decisions, against 6 for uniform) and reached 10 and 20 points sooner than uniform replay.</p></li>
+      <li><b>Uniform replay finished strongest.</b><p>It caught up around 6M decisions, reached 30 points well ahead (7.1M against 8.9M), was the only run to average 40, and ended at 46.6 with one game of 257 points.</p></li>
+      <li><b>The upstream recipe stayed low.</b><p>Its scores are per life, not per game, and its memory is 20 times smaller, so it is not a like-for-like comparison. This is one run per recipe (seed 7), so the ranking is a hint, not proof.</p></li>
+    </ol>
+    <p className="tx-note">Milestones are read from the same curves as “Our training runs”. Averages include exploration (ε about 0.1), so they understate how well each model plays when tested.</p>
+  </div>
+}
+
+/* ---------- chapter 8: the models --------------------------------------------------- */
 const MODELS = [
   { game: 'Pong', name: 'Nature DQN', score: '+21.0', unit: 'best test vs hard opponent', time: '4.4 h + 2.3 h', note: 'Pre-trained 10M decisions, fine-tuned 3M in two-player Pong. The 2015 paper’s network.', view: 'pong' as const },
   { game: 'Pong', name: 'Dueling DQN', score: '+19.0', unit: 'best test vs hard opponent', time: '4.8 h + 2.3 h', note: 'Same training; the network separately estimates “how good is this moment” and “how much better is each button”.', view: 'pong' as const },
@@ -465,6 +569,7 @@ const CHAPTERS = [
   { id: 'learn', title: 'Learning from mistakes', blurb: 'Guess, check, adjust, repeat.' },
   { id: 'data', title: 'The training data', blurb: 'Experience it collects itself.' },
   { id: 'runs', title: 'Our training runs', blurb: 'Real curves from the GPU.' },
+  { id: 'breakout', title: 'Breakout training in detail', blurb: 'Three recipes, one game.' },
   { id: 'models', title: 'Meet the models', blurb: 'Pick one and play it.' },
 ]
 export function TrainingExplained({ onPlay }: { onPlay: (view: 'pong' | 'breakout') => void }) {
@@ -474,11 +579,11 @@ export function TrainingExplained({ onPlay }: { onPlay: (view: 'pong' | 'breakou
     CHAPTERS.forEach(chapter => { const node = document.getElementById(`tx-${chapter.id}`); if (node) observer.observe(node) })
     return () => observer.disconnect()
   }, [])
-  const body: Record<string, React.ReactNode> = { sees: <SeesChapter />, decides: <DecidesChapter />, explore: <ExploreChapter />, learn: <LearnChapter />, data: <DataChapter />, runs: <RunsChapter />, models: <ModelsChapter onPlay={onPlay} /> }
+  const body: Record<string, React.ReactNode> = { sees: <SeesChapter />, decides: <DecidesChapter />, explore: <ExploreChapter />, learn: <LearnChapter />, data: <DataChapter />, runs: <RunsChapter />, breakout: <BreakoutChapter />, models: <ModelsChapter onPlay={onPlay} /> }
   return <div className="tx-page">
     <section className="tx-hero">
       <div><span className="section-index">NO MATHS NEEDED · ABOUT 5 MINUTES</span><h2>How does a computer learn to play Atari on its own?</h2>
-        <p>Nobody showed these models how to play. Each one started out pressing random buttons and improved only from the score: +1 for a point won, −1 for a point lost. This technique is called <b>Deep Q-Learning</b>. Click through the seven steps below; underlined words like <Term word="decision" /> or <Term word="replay memory" /> explain themselves.</p></div>
+        <p>Nobody showed these models how to play. Each one started out pressing random buttons and improved only from the score: +1 for a point won, −1 for a point lost. This technique is called <b>Deep Q-Learning</b>. Click through the eight steps below; underlined words like <Term word="decision" /> or <Term word="replay memory" /> explain themselves.</p></div>
       <div className="tx-hero-stats"><div><b>0</b><span>human examples used</span></div><div><b>10M</b><span>decisions per model: almost 8 days of non-stop play at game speed</span></div><div><b>+21</b><span>best Pong test score (21 = every point)</span></div></div>
     </section>
     <nav className="tx-nav" aria-label="Chapters">{CHAPTERS.map((chapter, index) => <a key={chapter.id} href={`#tx-${chapter.id}`} className={active === chapter.id ? 'active' : ''} onClick={event => { event.preventDefault(); document.getElementById(`tx-${chapter.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}><span>{String(index + 1).padStart(2, '0')}</span>{chapter.title}</a>)}</nav>

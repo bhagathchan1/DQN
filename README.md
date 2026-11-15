@@ -210,19 +210,23 @@ Step-by-step viewing instructions: [`guides/watch-agent-play/README.md`](guides/
 
 One browser UI with three views, chosen at the top of the page:
 
-- **Pong · live duel:** play two-player Pong against a trained (or fresh) DQN that learns
-  after each game.
+- **Pong · live duel:** play a 30-second match of two-player Pong against a trained (or
+  fresh) DQN that learns after each game. An animated banner announces the winner at the
+  final whistle.
 - **Breakout · take turns:** play a round (←/→ or A/D to move, Space to launch), then watch a
   trained Breakout DQN play the same seed at 1×, 2× or 4× speed. Both rounds get the same
-  random no-op start, 5 lives and a 5-minute limit; results are saved to
+  random no-op start, 5 lives and 30 seconds of game time. After the DQN's round an animated
+  banner announces who broke more bricks. Results are saved to
   `experiments/breakout_arena/scores.csv`. Only one game runs at a time.
 - **Trained models:** an interactive, no-background-needed explainer of Deep Q-Learning in
-  seven chapters: what the agent sees (frame stacking), how it decides (Q-values), exploring
+  eight chapters: what the agent sees (frame stacking) and how it decides (Q-values), each
+  with a Pong / Breakout switch, exploring
   vs exploiting (an ε slider), learning from mistakes (the update loop, a worked example
   and a γ slider), **the training data** (real experiences recorded live from Pong or
   Breakout, randomly or with a trained model, plus a browser and CSV download for every
-  training log), the real learning curves (with hover read-outs and a table view) and
-  cards for each model. Underlined terms open glossary definitions.
+  training log), the real learning curves (with hover read-outs and a table view),
+  **Breakout training in detail** (scoring and lives, the three recipes side by side, and
+  milestones read from the curves) and cards for each model. Underlined terms open glossary definitions.
 
 Setup differs by platform (WSL2 on Windows, native on Linux or macOS). Start with:
 

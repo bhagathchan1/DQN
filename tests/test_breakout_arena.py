@@ -106,7 +106,7 @@ class BreakoutArenaTests(unittest.TestCase):
         self.arena.start('ai', 11, model, speed=4)
         wait_finished(self.arena)
         ai_round = FakeRound.created[1]
-        self.assertEqual((ai_round.seed, ai_round.max_steps), (11, 4500), 'DQN gets the same seed and limit')
+        self.assertEqual((ai_round.seed, ai_round.max_steps), (11, 450), 'DQN gets the same seed and 30-second limit')
         self.assertTrue(ai_round.checkpoint.endswith(f'{model}.pt'))
         pairs = self.arena.snapshot()['pairs']
         self.assertEqual(pairs[0]['seed'], 11)
